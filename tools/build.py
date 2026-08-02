@@ -25,9 +25,17 @@ UTF8_EXT = (".ahk",)
 
 # 配布 ZIP。top は ZIP 内のフォルダ名、sub は dist からの相対パス
 # （"." のときは dist 直下のファイルと exclude 以外のフォルダ）。
+# dist 内でのコピー。かんたん版は本体 (.vbs) を描画順から借りるので、
+# 原本を 2 か所に置かずに済むよう、ビルド時にコピーする。
+EXTRA_COPIES = (
+    ("描画順/jww_draw_order.vbs", "描画順かんたん版/jww_draw_order.vbs"),
+)
+
 ZIPS = (
     {"zip": "jww_moji_align.zip", "top": "文字位置揃え", "sub": ".",
-     "exclude": ("描画順", "jwf設定比較")},
+     "exclude": ("描画順", "描画順かんたん版", "jwf設定比較")},
+    {"zip": "jww_draw_order_simple.zip", "top": "線の重なり順",
+     "sub": "描画順かんたん版", "exclude": ()},
     {"zip": "jww_draw_order.zip", "top": "描画順", "sub": "描画順",
      "exclude": ()},
     {"zip": "jwf_diff.zip", "top": "jwf設定比較", "sub": "jwf設定比較",
@@ -102,6 +110,12 @@ def main():
             else:
                 shutil.copy2(src_path, dst_path)
                 print("copy   %s" % os.path.relpath(dst_path, ROOT))
+
+    for src_rel, dst_rel in EXTRA_COPIES:
+        dst = os.path.join(DIST, dst_rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(os.path.join(DIST, src_rel), dst)
+        print("copy   %s" % os.path.relpath(dst, ROOT))
 
     for spec in ZIPS:
         make_zip(spec)
