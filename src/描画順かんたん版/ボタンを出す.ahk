@@ -77,14 +77,26 @@ Go(*) {
     PostMessage(WM_COMMAND, id, 0, , "ahk_id " hwnd)
 
     ;--- ② バッチを選ぶ ----------------------------------------
+    ;    Jw_cad の [ファイル選択] は Windows 標準の画面ではなく
+    ;    Jw_cad 独自のもので、ファイル名を打ち込む欄が無い。
+    ;    そこで、一覧の中から目的の行を選んで開く。
     dlg := WaitDialog(hwnd, 5)
     if !dlg {
         Fail("ファイル選択の画面が出ませんでした。")
         return
     }
-    if !FillDialog(dlg, BAT) {
-        Fail("ファイル名を入れられませんでした。")
-        return
+
+    if !PickBat(dlg, BAT) {
+        ; 一覧に無い＝別のフォルダを見ている。
+        ; 最初の 1 回だけ手で選んでもらう。Jw_cad はそのフォルダを
+        ; 覚えるので、次からは上の自動選択が当たる。
+        ToolTip("最初の 1 回だけ、この画面で`n"
+              . "「線の重なり順を直す.bat」を選んでください。`n"
+              . "次からはボタンだけで最後まで進みます。")
+        ok := WinWaitClose("ahk_id " dlg, , 120)
+        ToolTip()
+        if !ok
+            return
     }
 
     ;--- ③ 表示部を全範囲選択 ----------------------------------
@@ -175,56 +187,99 @@ FindExtCmd(hwnd) {
 }
 
 ;==============================================================
-;  外部変形のファイル選択画面が出るのを待つ
-;  （本体とは別の、あとから出てきたウィンドウ）
+;  外部変形の [ファイル選択] が出るのを待つ
+;
+;  Jw_cad 独自の画面で、題名が「ファイル選択」。
+;  題名で当たらないときだけ、後から出てきた別ウィンドウを拾う。
 ;==============================================================
 WaitDialog(mainHwnd, sec) {
     t := A_TickCount
     while (A_TickCount - t < sec * 1000) {
+        cand := 0
         for h in WinGetList("ahk_exe jw_win.exe") {
             if (h = mainHwnd)
                 continue
             if !DllCall("IsWindowVisible", "ptr", h)
                 continue
-            if (WinGetClass("ahk_id " h) = "#32770")
+            if InStr(WinGetTitle("ahk_id " h), "ファイル選択")
                 return h
+            if !cand
+                cand := h
         }
+        if cand
+            return cand
         Sleep 50
     }
     return 0
 }
 
-;==============================================================
-;  ファイル名を入れて確定する
-;
-;  ①「ファイル名」欄に直接書き込む
-;  ② 駄目なら、実際にキーを打ち込む
-;     （日本語のファイル名でも {Text} なら確実に入る）
-;==============================================================
-FillDialog(dlg, path) {
+;--- 中にある指定の種類のコントロールを探す -------------------
+FindByClass(hwnd, cls) {
+    ctls := []
     try {
-        ControlSetText(path, "Edit1", "ahk_id " dlg)
-        Sleep 100
-        if (ControlGetText("Edit1", "ahk_id " dlg) = path) {
-            ControlSend("{Enter}", "Edit1", "ahk_id " dlg)
-            return true
-        }
+        ctls := WinGetControls("ahk_id " hwnd)
     } catch {
-        ; ①が使えなかった。②へ。
+        return ""
     }
+    for ctl in ctls {
+        if (InStr(ctl, cls) = 1)
+            return ctl
+    }
+    return ""
+}
 
+;==============================================================
+;  [ファイル選択] の一覧から、目的のバッチを選んで開く
+;
+;  この画面にはファイル名を打ち込む欄が無い。文字を打ち込むと
+;  別の入力欄に入って「整数を入力してください。」になるので、
+;  絶対に打ち込まないこと。一覧の行を選ぶだけにする。
+;
+;  戻り値 : 選べて画面が閉じたら true
+;==============================================================
+PickBat(dlg, batPath) {
+    SplitPath(batPath, &fname, , , &base)
+
+    lv := FindByClass(dlg, "SysListView32")
+    if (lv = "")
+        return false
+
+    rows := ""
     try {
-        WinActivate("ahk_id " dlg)
-        if !WinWaitActive("ahk_id " dlg, , 2)
-            return false
-        Sleep 100
-        SendInput("{Text}" path)
-        Sleep 150
-        SendInput("{Enter}")
-        return true
+        rows := ListViewGetContent("Col1", lv, "ahk_id " dlg)
     } catch {
         return false
     }
+
+    idx := 0
+    n   := 0
+    Loop Parse rows, "`n", "`r" {
+        n++
+        if (A_LoopField = "")
+            continue
+        ; 拡張子ありでも無しでも当たるようにする
+        if (A_LoopField = fname || A_LoopField = base
+            || InStr(A_LoopField, base)) {
+            idx := n
+            break
+        }
+    }
+    if !idx
+        return false
+
+    try {
+        ControlFocus(lv, "ahk_id " dlg)
+        Sleep 60
+        ControlSend("{Home}", lv, "ahk_id " dlg)
+        if (idx > 1)
+            ControlSend("{Down " (idx - 1) "}", lv, "ahk_id " dlg)
+        Sleep 80
+        ControlSend("{Enter}", lv, "ahk_id " dlg)
+    } catch {
+        return false
+    }
+
+    return WinWaitClose("ahk_id " dlg, , 3) ? true : false
 }
 
 ;==============================================================
@@ -324,6 +379,19 @@ DumpJw(*) {
                 txt := "(読めません)"
             }
             out .= "    " ctl "`t" txt "`r`n"
+            ; 一覧は中身も書き出す（ファイル選択の画面の確認用）
+            if (InStr(ctl, "SysListView32") = 1) {
+                rows := ""
+                try {
+                    rows := ListViewGetContent("Col1", ctl, "ahk_id " hwnd)
+                } catch {
+                    rows := "(読めません)"
+                }
+                Loop Parse rows, "`n", "`r" {
+                    if (A_LoopField != "")
+                        out .= "        > " A_LoopField "`r`n"
+                }
+            }
         }
     }
 
