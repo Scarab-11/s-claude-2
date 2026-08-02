@@ -27,6 +27,10 @@ BAT := A_ScriptDir "\線の重なり順を直す.bat"
 WM_COMMAND    := 0x111
 MF_BYPOSITION := 0x400
 
+; [その他] － [外部変形] のコマンド番号（Jw_cad 8.20 で確認）
+; メニューから探せなかったときだけ、この番号を使う。
+EXT_CMD := 32913
+
 if !FileExist(BAT) {
     MsgBox("線の重なり順を直す.bat が見つかりません。`n`n"
          . "このファイルは 線の重なり順を直す.bat と同じフォルダに"
@@ -48,14 +52,12 @@ btn.Show("x" (A_ScreenWidth - 160) " y8 NoActivate")
 ;  ボタンを押したときの動き（ここが全部）
 ;==============================================================
 Go(*) {
-    global BAT, WM_COMMAND
+    global BAT, WM_COMMAND, EXT_CMD
 
     hwnd := JwMain()
     if !hwnd {
         if WinExist("ahk_exe jw_win.exe")
-            MsgBox("Jw_cad の本体ウィンドウが見つかりませんでした。`n`n"
-                 . "Ctrl + Alt + M で状態を書き出せます。"
-                 , "線の重なり順", "Icon!")
+            Fail("Jw_cad の本体ウィンドウが見つかりませんでした。")
         else
             MsgBox("Jw_cad が起動していません。", "線の重なり順", "Icon!")
         return
@@ -69,49 +71,51 @@ Go(*) {
 
     ;--- ① 外部変形を起動 --------------------------------------
     ;    メニューを開かずに、[外部変形] のコマンド番号を直接送る
-    if (id := FindExtCmd(hwnd)) {
-        PostMessage(WM_COMMAND, id, 0, , "ahk_id " hwnd)
-    } else {
-        MsgBox("[外部変形] のメニューが見つかりませんでした。`n`n"
-             . "Ctrl + Alt + M を押すと、Jw_cad のメニュー一覧を"
-             . "メモ帳に書き出します。", "線の重なり順", "Icon!")
-        return
-    }
+    id := FindExtCmd(hwnd)
+    if !id
+        id := EXT_CMD
+    PostMessage(WM_COMMAND, id, 0, , "ahk_id " hwnd)
 
     ;--- ② バッチを選ぶ ----------------------------------------
     dlg := WaitDialog(hwnd, 5)
     if !dlg {
-        MsgBox("ファイル選択の画面を見つけられませんでした。`n`n"
-             . "その画面を出したまま Ctrl + Alt + M を押すと、"
-             . "中身をメモ帳に書き出します。", "線の重なり順", "Icon!")
+        Fail("ファイル選択の画面が出ませんでした。")
         return
     }
     if !FillDialog(dlg, BAT) {
-        MsgBox("ファイル名を入れられませんでした。", "線の重なり順", "Icon!")
+        Fail("ファイル名を入れられませんでした。")
         return
     }
 
     ;--- ③ 表示部を全範囲選択 ----------------------------------
     ;    [全選択] が拾うのは編集可能なレイヤだけなので、
     ;    [表示のみ] のレイヤは自動的に外れる
-    if !WinWaitActive("ahk_id " hwnd, , 5)
-        return
-    Sleep 400
-
-    if !ClickBar("全選択") {
-        MsgBox("[全選択] を押せませんでした。`n`n"
-             . "Ctrl + Alt + M を押すと、コントロールバーの中身を"
-             . "メモ帳に書き出します。", "線の重なり順", "Icon!")
+    ;
+    ;    コントロールバーは外部変形の起動が終わってから
+    ;    作り直されるので、固定時間で待たずに
+    ;    ボタンが出てくるまで待つ。
+    if !ClickBar("全選択", 5) {
+        Fail("[全選択] のボタンが出てきませんでした。")
         return
     }
 
     ;--- ④ 選択確定 --------------------------------------------
-    Sleep 250
-    if !ClickBar("選択確定") {
+    ;    [選択確定] は範囲が決まってから出るので、これも待つ
+    if !ClickBar("選択確定", 5) {
         ; ボタンが押せなくても、Enter で確定できる
         WinActivate("ahk_id " hwnd)
         Send("{Enter}")
     }
+}
+
+;--- 途中で止まったとき --------------------------------------
+;    そのときの Jw_cad の中身をそのまま書き出す。
+;    Ctrl + Alt + M を押してもらう手間を省く。
+Fail(msg) {
+    MsgBox(msg "`n`n"
+         . "このときの Jw_cad の状態を「Jw_cad調査.txt」に"
+         . "書き出してメモ帳で開きます。", "線の重なり順", "Icon!")
+    DumpJw()
 }
 
 ;==============================================================
@@ -224,13 +228,13 @@ FillDialog(dlg, path) {
 }
 
 ;==============================================================
-;  コントロールバーのボタンを押す
+;  コントロールバーのボタンを探す
 ;
-;  Jw_cad のコントロールバーが本体の中にあるとは限らないので、
-;  jw_win.exe の全ウィンドウを見て、その名前を持つボタンを探す。
-;  見つけたら押す。押せなければ、その場所を実際にクリックする。
+;  Jw_cad のコントロールバーはコマンドごとに作り直されるので、
+;  ボタンの ClassNN は決め打ちできない。jw_win.exe の全ウィンドウ
+;  の中を見て、その文字を持つボタンを探す。
 ;==============================================================
-ClickBar(name) {
+FindBar(name) {
     for hwnd in WinGetList("ahk_exe jw_win.exe") {
         ctls := []
         try {
@@ -245,27 +249,42 @@ ClickBar(name) {
             } catch {
                 continue
             }
-            if !InStr(txt, name)
-                continue
-
-            try {
-                ControlClick(ctl, "ahk_id " hwnd)
-                return true
-            } catch {
-                ; 名前で押せなかった。位置を調べて実際にクリックする。
-            }
-            try {
-                WinActivate("ahk_id " hwnd)
-                CoordMode("Mouse", "Client")
-                ControlGetPos(&cx, &cy, &cw, &ch, ctl, "ahk_id " hwnd)
-                Click((cx + cw // 2) " " (cy + ch // 2))
-                return true
-            } catch {
-                ; 次の候補へ
-            }
+            if InStr(txt, name)
+                return { win: hwnd, ctl: ctl }
         }
     }
-    return false
+    return 0
+}
+
+;--- ボタンが出てくるのを待って、押す -------------------------
+;    押せなければ、その場所を実際にクリックする
+ClickBar(name, sec) {
+    t := A_TickCount
+    f := 0
+    Loop {
+        f := FindBar(name)
+        if f
+            break
+        if (A_TickCount - t > sec * 1000)
+            return false
+        Sleep 100
+    }
+
+    try {
+        ControlClick(f.ctl, "ahk_id " f.win)
+        return true
+    } catch {
+        ; コントロールとして押せなかった。実際にクリックする。
+    }
+    try {
+        WinActivate("ahk_id " f.win)
+        CoordMode("Mouse", "Client")
+        ControlGetPos(&cx, &cy, &cw, &ch, f.ctl, "ahk_id " f.win)
+        Click((cx + cw // 2) " " (cy + ch // 2))
+        return true
+    } catch {
+        return false
+    }
 }
 
 ;==============================================================
