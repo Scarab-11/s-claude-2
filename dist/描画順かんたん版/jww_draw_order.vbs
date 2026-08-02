@@ -27,6 +27,7 @@ Option Explicit
 '     /n:...   番号の並び／対象番号（カンマ区切り  例 /n:3,1,2）
 '     /q       ダイアログを出さない（引数だけで実行）
 '     /qn      番号だけを聞く（並べ方と番号の種類は引数で固定）
+'     /nowarn  寸法図形などが混ざっていても警告を出さない
 '
 '   Jw_cad Version 8.20 で使用する想定
 '==============================================================
@@ -60,6 +61,7 @@ Dim gTailPend               ' 末尾に残った未知の行
 Dim gEndLg, gEndLy, gEndLc, gEndLt   ' 読み終えた時点の属性（書込状態の復元用）
 Dim gUnknownCount           ' 分類できなかった行の数
 Dim gUnknownFirst           ' その最初の 1 行
+Dim gDimCount               ' 寸法コマンドで作られた文字(cs)の数
 
 '--- 要素レコード ---------------------------------------------
 '   Jw_cad のデータは「属性行 → 要素行」の順に並び、属性行は
@@ -98,6 +100,9 @@ Sub Main()
         WriteAllText tempPath, "he 並べ替えるデータが選択されていません。" & vbCrLf
         WScript.Quit 0
     End If
+
+    '--- 危ないデータが混ざっていないか確かめる ----------------
+    If Not ConfirmRisky() Then WScript.Quit 0
 
     '--- 並べ替え方の決定 -------------------------------------
     If Not GetSettings(mode, keyKind, nums) Then
@@ -146,6 +151,7 @@ Sub InitArrays()
     gTailPend = ""
     gEndLg = "" : gEndLy = "" : gEndLc = "" : gEndLt = ""
     gUnknownCount = 0 : gUnknownFirst = ""
+    gDimCount = 0
 End Sub
 
 '==============================================================
@@ -190,6 +196,7 @@ Sub ParseTemp(lines)
         ElseIf Left(t, 1) = "h" Then
             ' 図面情報（hq を含む）は出力しない
         ElseIf IsElementLine(t) Then
+            If LCase(Left(t, 2)) = "cs" Then gDimCount = gDimCount + 1
             PushRec curLg, curLy, curLc, curLt, curCn, pend, raw
             pend = ""
         Else
@@ -479,6 +486,51 @@ Function AppendLines(out, ByVal n, arr)
         End If
     Next
     AppendLines = n
+End Function
+
+'==============================================================
+' 形が崩れる可能性のあるデータが混ざっていないか確かめる
+'
+'   外部変形は「選択されたデータをいったん消して描き直す」ため、
+'   寸法図形やブロック図形は範囲に入れた時点で分解されてしまう。
+'   スクリプト側で選んで残すことはできない（消すか消さないかは
+'   hd による全消しか、何もしないかの二択しかない）。
+'   そこで、見つかったときは実行前に知らせて中止できるようにする。
+'
+'   戻り値 : False なら中止（jwc_temp.txt を書き換えないので
+'            Jw_cad 側は「未実行」となり図面は変わらない）
+'==============================================================
+Function ConfirmRisky()
+    Dim args, msg
+
+    ConfirmRisky = True
+
+    Set args = WScript.Arguments.Named
+    If args.Exists("nowarn") Then Exit Function
+    If gDimCount = 0 And gUnknownCount = 0 Then Exit Function
+
+    msg = "選択した範囲に、並べ替えると形が崩れるかもしれない" & vbCrLf & _
+          "データが含まれています。" & vbCrLf & vbCrLf
+
+    If gDimCount > 0 Then
+        msg = msg & "  ・寸法コマンドで作られた文字 : " & gDimCount & " 個" & vbCrLf & _
+                    "    寸法図形はバラバラの線と文字になります" & vbCrLf & vbCrLf
+    End If
+
+    If gUnknownCount > 0 Then
+        msg = msg & "  ・種類の分からないデータ : " & gUnknownCount & " 行" & vbCrLf & _
+                    "    ブロック図形などの可能性があります" & vbCrLf & _
+                    "    例 : " & Left(gUnknownFirst, 30) & vbCrLf & vbCrLf
+    End If
+
+    msg = msg & "外したいときは [いいえ] を選んでください。図面は" & vbCrLf & _
+                "変わりません。そのデータのあるレイヤを [表示のみ] に" & vbCrLf & _
+                "してから選び直すと、範囲選択の対象から外れます。" & vbCrLf & vbCrLf & _
+                "このまま並べ替えますか？"
+
+    If MsgBox(msg, vbYesNo + vbExclamation + vbDefaultButton2, APPTITLE) <> vbYes Then
+        ConfirmRisky = False
+    End If
 End Function
 
 '==============================================================
