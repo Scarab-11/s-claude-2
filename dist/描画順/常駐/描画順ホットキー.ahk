@@ -17,8 +17,15 @@
 ;  ホットキー （Jw_cad がアクティブなときだけ効きます）
 ;    Ctrl + Alt + ↑    選んだものを最前面へ
 ;    Ctrl + Alt + ↓    指定した線色を最背面へ
-;    Ctrl + Alt + L    線色順 1,2,3,4,6,5,7,8 に並べ替え
+;    Ctrl + Alt + L    線色順 1,2,3,4,6,5,7,8 に並べ替え（範囲は手で選ぶ）
+;    Ctrl + Alt + A    同上を図面全体に適用（全選択 － 選択確定 まで自動）
 ;    Ctrl + Alt + O    描画順（対話式）
+;
+;  Ctrl + Alt + A について
+;    [全選択] が拾うのは「編集可能なレイヤー」のデータだけです。
+;    ブロック図形・寸法図形・曲線属性でまとめた図形は外部変形を
+;    通すと分解されるので、それらを置いたレイヤーは [表示のみ]
+;    にしておいてください。全選択の対象から外れます。
 ;==============================================================
 
 ;--------------------------------------------------------------
@@ -39,6 +46,17 @@ MENU_SUB := "外部変形"
 ; ファイル選択ダイアログを待つ秒数
 DLG_WAIT := 5
 
+; 範囲選択まで自動で行うときに押すコントロールバーのボタン名
+BTN_ALL := "全選択"
+BTN_OK  := "選択確定"
+
+; ボタンの押し方
+;   false … ControlClick でボタンに直接クリックを送る（マウスは動かない）
+;   true  … 実際にマウスを動かしてクリックする
+;           ControlClick が効かない環境ではこちらにしてください
+;           （クリック後、マウスの位置は元に戻します）
+REAL_CLICK := false
+
 ;--------------------------------------------------------------
 ; ホットキー
 ;--------------------------------------------------------------
@@ -47,6 +65,7 @@ DLG_WAIT := 5
 ^!Up::   RunGaihen("描画順_最前面へ.bat")
 ^!Down:: RunGaihen("描画順_線色指定で最背面.bat")
 ^!l::    RunGaihen("描画順_線色順_12346578.bat")
+^!a::    RunGaihen("描画順_線色順_12346578.bat", true)   ; 図面全体に適用
 ^!o::    RunGaihen("描画順.bat")
 
 #HotIf
@@ -54,8 +73,8 @@ DLG_WAIT := 5
 ;--------------------------------------------------------------
 ; [その他] － [外部変形] を開いて、バッチファイルを選ぶ
 ;--------------------------------------------------------------
-RunGaihen(batName) {
-    global BAT_DIR, JW_EXE, MENU_TOP, MENU_SUB, DLG_WAIT
+RunGaihen(batName, autoRange := false) {
+    global BAT_DIR, JW_EXE, MENU_TOP, MENU_SUB, DLG_WAIT, BTN_ALL, BTN_OK
 
     batPath := BAT_DIR . batName
 
@@ -98,6 +117,70 @@ RunGaihen(batName) {
         return
     }
 
-    ; あとは Jw_cad のコントロールバーの指示にしたがって
-    ; 範囲選択してください。
+    ; ここまでで Jw_cad は範囲選択待ちになっている。
+    ; autoRange が false なら、あとはコントロールバーの指示に
+    ; したがって手で範囲選択する。
+    if !autoRange
+        return
+
+    ; --- 図面全体に適用する（全選択 － 選択確定） ---------------
+    ;
+    ; [全選択] が拾うのは「編集可能なレイヤー」のデータだけ。
+    ; 触りたくないもの（ブロック図形・寸法図形など）は、その
+    ; レイヤーを [表示のみ] にしておけば対象から外れる。
+    if !WinWaitActive("ahk_exe " JW_EXE, , 5) {
+        MsgBox("Jw_cad が範囲選択の状態になりませんでした。", "描画順", "Icon!")
+        return
+    }
+    Sleep 300
+
+    if !ClickBar(BTN_ALL) {
+        MsgBox("コントロールバーの [" BTN_ALL "] を押せませんでした。`n`n"
+             . "続きは手で操作してください。`n"
+             . "うまくいかない場合は、このスクリプトの先頭にある"
+             . " REAL_CLICK を true にしてみてください。", "描画順", "Icon!")
+        return
+    }
+    Sleep 200
+
+    if !ClickBar(BTN_OK) {
+        MsgBox("コントロールバーの [" BTN_OK "] を押せませんでした。`n`n"
+             . "続きは手で操作してください。", "描画順", "Icon!")
+        return
+    }
+}
+
+;--------------------------------------------------------------
+; コントロールバーのボタンを押す
+;--------------------------------------------------------------
+ClickBar(text) {
+    global JW_EXE, REAL_CLICK
+
+    if !REAL_CLICK {
+        try {
+            ControlClick(text, "ahk_exe " JW_EXE)
+            return true
+        } catch
+            return false
+    }
+
+    ; ControlClick が効かない環境向け。実際にマウスを動かして押し、
+    ; 終わったら元の位置に戻す。
+    try {
+        ControlGetPos(&cx, &cy, &cw, &ch, text, "ahk_exe " JW_EXE)
+    } catch
+        return false
+
+    if (cw = 0 or ch = 0)
+        return false
+
+    px := cx + cw // 2
+    py := cy + ch // 2
+
+    MouseGetPos(&ox, &oy)
+    prev := CoordMode("Mouse", "Client")
+    Click(px " " py)
+    CoordMode("Mouse", prev)
+    MouseMove(ox, oy, 0)
+    return true
 }
