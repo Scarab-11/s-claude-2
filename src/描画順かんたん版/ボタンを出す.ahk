@@ -112,6 +112,59 @@ FindExtCmd(hwnd) {
     return 0
 }
 
+;==============================================================
+;  外部変形のファイル選択画面が出るのを待つ
+;  （本体とは別の、あとから出てきたウィンドウ）
+;==============================================================
+WaitDialog(mainHwnd, sec) {
+    t := A_TickCount
+    while (A_TickCount - t < sec * 1000) {
+        for h in WinGetList("ahk_exe jw_win.exe") {
+            if (h = mainHwnd)
+                continue
+            if !DllCall("IsWindowVisible", "ptr", h)
+                continue
+            if (WinGetClass("ahk_id " h) = "#32770")
+                return h
+        }
+        Sleep 50
+    }
+    return 0
+}
+
+;==============================================================
+;  ファイル名を入れて確定する
+;
+;  ①「ファイル名」欄に直接書き込む
+;  ② 駄目なら、実際にキーを打ち込む
+;     （日本語のファイル名でも {Text} なら確実に入る）
+;==============================================================
+FillDialog(dlg, path) {
+    try {
+        ControlSetText(path, "Edit1", "ahk_id " dlg)
+        Sleep 100
+        if (ControlGetText("Edit1", "ahk_id " dlg) = path) {
+            ControlSend("{Enter}", "Edit1", "ahk_id " dlg)
+            return true
+        }
+    } catch {
+        ; ①が使えなかった。②へ。
+    }
+
+    try {
+        WinActivate("ahk_id " dlg)
+        if !WinWaitActive("ahk_id " dlg, , 2)
+            return false
+        Sleep 100
+        SendInput("{Text}" path)
+        Sleep 150
+        SendInput("{Enter}")
+        return true
+    } catch {
+        return false
+    }
+}
+
 ;--- コントロールバーのボタンを押す ---------------------------
 ;    名前で押せなければ、その位置を実際にクリックする
 ClickBar(hwnd, name) {
@@ -176,18 +229,16 @@ Go(*) {
         return
     }
 
-    ; 外部変形のファイル選択（標準の [開く] ダイアログ）
-    ; 出てこなくてもエラーにはしない。手で選べばよい。
-    if !WinWait("ahk_class #32770 ahk_exe jw_win.exe", , 5)
-        return
-    dlg := WinExist()
-
-    try {
-        ControlSetText(BAT, "Edit1", dlg)
-        ControlSend("{Enter}", "Edit1", dlg)
-    } catch {
+    ; 外部変形のファイル選択（[開く] ダイアログ）
+    dlg := WaitDialog(hwnd, 5)
+    if !dlg {
+        MsgBox("ファイル選択の画面を見つけられませんでした。`n`n"
+             . "その画面を出したまま Ctrl + Alt + M を押すと、"
+             . "中身をメモ帳に書き出します。", "線の重なり順", "Icon!")
         return
     }
+    if !FillDialog(dlg, BAT)
+        return
 
     ; ここで Jw_cad は範囲選択待ちになる。[全選択] を押して
     ; 表示部を全範囲選択の状態にする。
@@ -224,10 +275,28 @@ DumpJw(*) {
 
     for hwnd in hits {
         hMenu := DllCall("GetMenu", "ptr", hwnd, "ptr")
+        vis   := DllCall("IsWindowVisible", "ptr", hwnd)
         out .= "`r`nhwnd=" hwnd
              . "  class=" WinGetClass("ahk_id " hwnd)
              . "  menu=" (hMenu ? "あり" : "なし")
+             . "  表示=" (vis ? "する" : "しない")
              . "`r`n  title=" WinGetTitle("ahk_id " hwnd) "`r`n"
+        ; そのウィンドウの中のボタン・入力欄
+        ctls := []
+        try {
+            ctls := WinGetControls("ahk_id " hwnd)
+        } catch {
+            ctls := []
+        }
+        for ctl in ctls {
+            txt := ""
+            try {
+                txt := ControlGetText(ctl, "ahk_id " hwnd)
+            } catch {
+                txt := "(読めません)"
+            }
+            out .= "    " ctl "`t" txt "`r`n"
+        }
     }
 
     hwnd := JwMain()
@@ -253,13 +322,6 @@ DumpJw(*) {
             }
         }
 
-        out .= "`r`n`r`nコントロール一覧（hwnd=" hwnd "）`r`n"
-             . "==============================`r`n"
-        for ctl in WinGetControls("ahk_id " hwnd) {
-            txt := ""
-            try txt := ControlGetText(ctl, "ahk_id " hwnd)
-            out .= ctl "`t" txt "`r`n"
-        }
     }
 
     path := A_ScriptDir "\Jw_cad調査.txt"
