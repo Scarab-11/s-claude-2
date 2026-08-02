@@ -6,32 +6,21 @@
 ;  同じフォルダの「ボタンを出す.bat」をダブルクリックすると、
 ;  画面の右上に [線の重なり順] という小さなボタンが出ます。
 ;
-;  （このファイルを直接ダブルクリックしても構いませんが、
-;    .ahk が Jw_cad などに関連付けられていると、そちらが
-;    起動してしまいます。bat のほうは AutoHotkey を自分で
-;    探して起動するので、その影響を受けません。）
+;  ボタンを 1 回押すだけで、次が最後まで自動で走ります。
 ;
-;  ボタンを押すと
-;    [その他] － [外部変形] を開く
-;      → 線の重なり順を直す.bat を選ぶ
-;        → [全選択] を押す          ← ここまで自動
-;  まで進みます。あとは Enter（または [選択確定]）を押すだけです。
+;      外部変形（線の重なり順を直す）を起動
+;        → 表示部を全範囲選択
+;          → 選択確定（Enter）
 ;
-;  設定は要りません。線の重なり順を直す.bat と同じフォルダに
-;  置いておけば、そのまま動きます。
+;  操作はこれだけです。設定はひとつもありません。
 ;
 ;  ボタンは常に手前に出ます。ドラッグして好きな場所に置けます。
 ;  終了はボタンの右上の × です。
 ;  Ctrl + Alt + L でも同じことができます。
 ;
 ;  うまく動かないときは Ctrl + Alt + M を押してください。
-;  Jw_cad のメニューとボタンの一覧をメモ帳に出します。
+;  Jw_cad の中身をメモ帳に書き出します（調べもの用）。
 ;==============================================================
-
-; ── ここだけ、必要なら変更 ────────────────────
-;    true にすると [選択確定] まで自動で押します（Enter も不要）
-AUTO_OK := false
-; ──────────────────────────────────────────
 
 BAT := A_ScriptDir "\線の重なり順を直す.bat"
 
@@ -56,15 +45,84 @@ btn.Show("x" (A_ScreenWidth - 160) " y8 NoActivate")
 ^!m::DumpJw()
 
 ;==============================================================
-;  Jw_cad の窓を探す
+;  ボタンを押したときの動き（ここが全部）
+;==============================================================
+Go(*) {
+    global BAT, WM_COMMAND
+
+    hwnd := JwMain()
+    if !hwnd {
+        if WinExist("ahk_exe jw_win.exe")
+            MsgBox("Jw_cad の本体ウィンドウが見つかりませんでした。`n`n"
+                 . "Ctrl + Alt + M で状態を書き出せます。"
+                 , "線の重なり順", "Icon!")
+        else
+            MsgBox("Jw_cad が起動していません。", "線の重なり順", "Icon!")
+        return
+    }
+
+    WinActivate("ahk_id " hwnd)
+    if !WinWaitActive("ahk_id " hwnd, , 3) {
+        MsgBox("Jw_cad を前面にできませんでした。", "線の重なり順", "Icon!")
+        return
+    }
+
+    ;--- ① 外部変形を起動 --------------------------------------
+    ;    メニューを開かずに、[外部変形] のコマンド番号を直接送る
+    if (id := FindExtCmd(hwnd)) {
+        PostMessage(WM_COMMAND, id, 0, , "ahk_id " hwnd)
+    } else {
+        MsgBox("[外部変形] のメニューが見つかりませんでした。`n`n"
+             . "Ctrl + Alt + M を押すと、Jw_cad のメニュー一覧を"
+             . "メモ帳に書き出します。", "線の重なり順", "Icon!")
+        return
+    }
+
+    ;--- ② バッチを選ぶ ----------------------------------------
+    dlg := WaitDialog(hwnd, 5)
+    if !dlg {
+        MsgBox("ファイル選択の画面を見つけられませんでした。`n`n"
+             . "その画面を出したまま Ctrl + Alt + M を押すと、"
+             . "中身をメモ帳に書き出します。", "線の重なり順", "Icon!")
+        return
+    }
+    if !FillDialog(dlg, BAT) {
+        MsgBox("ファイル名を入れられませんでした。", "線の重なり順", "Icon!")
+        return
+    }
+
+    ;--- ③ 表示部を全範囲選択 ----------------------------------
+    ;    [全選択] が拾うのは編集可能なレイヤだけなので、
+    ;    [表示のみ] のレイヤは自動的に外れる
+    if !WinWaitActive("ahk_id " hwnd, , 5)
+        return
+    Sleep 400
+
+    if !ClickBar("全選択") {
+        MsgBox("[全選択] を押せませんでした。`n`n"
+             . "Ctrl + Alt + M を押すと、コントロールバーの中身を"
+             . "メモ帳に書き出します。", "線の重なり順", "Icon!")
+        return
+    }
+
+    ;--- ④ 選択確定 --------------------------------------------
+    Sleep 250
+    if !ClickBar("選択確定") {
+        ; ボタンが押せなくても、Enter で確定できる
+        WinActivate("ahk_id " hwnd)
+        Send("{Enter}")
+    }
+}
+
+;==============================================================
+;  Jw_cad の本体ウィンドウを探す
 ;
 ;  Jw_cad はツールバーなども独立した窓として持っているので、
 ;  「jw_win.exe の窓」だけでは本体に当たらないことがある。
 ;  メニューバーを持っている窓＝本体、として探す。
 ;==============================================================
 JwMain() {
-    hits := WinGetList("ahk_exe jw_win.exe")
-    for hwnd in hits {
+    for hwnd in WinGetList("ahk_exe jw_win.exe") {
         if DllCall("GetMenu", "ptr", hwnd, "ptr")
             return hwnd
     }
@@ -165,102 +223,54 @@ FillDialog(dlg, path) {
     }
 }
 
-;--- コントロールバーのボタンを押す ---------------------------
-;    名前で押せなければ、その位置を実際にクリックする
-ClickBar(hwnd, name) {
-    try {
-        ControlClick(name, "ahk_id " hwnd)
-        return true
-    } catch {
-        ; 名前で押せなかった。位置を調べて実際にクリックする。
-    }
-    try {
-        CoordMode("Mouse", "Client")
-        ControlGetPos(&cx, &cy, &cw, &ch, name, "ahk_id " hwnd)
-        Click((cx + cw // 2) " " (cy + ch // 2))
-        return true
-    } catch {
-        return false
-    }
-}
-
 ;==============================================================
-;  ボタンを押したときの動き
+;  コントロールバーのボタンを押す
+;
+;  Jw_cad のコントロールバーが本体の中にあるとは限らないので、
+;  jw_win.exe の全ウィンドウを見て、その名前を持つボタンを探す。
+;  見つけたら押す。押せなければ、その場所を実際にクリックする。
 ;==============================================================
-Go(*) {
-    global BAT, AUTO_OK, WM_COMMAND
-
-    hwnd := JwMain()
-    if !hwnd {
-        if WinExist("ahk_exe jw_win.exe")
-            MsgBox("Jw_cad の本体ウィンドウが見つかりませんでした。`n`n"
-                 . "Ctrl + Alt + M で状態を書き出せます。"
-                 , "線の重なり順", "Icon!")
-        else
-            MsgBox("Jw_cad が起動していません。", "線の重なり順", "Icon!")
-        return
-    }
-
-    WinActivate("ahk_id " hwnd)
-    if !WinWaitActive("ahk_id " hwnd, , 3) {
-        MsgBox("Jw_cad を前面にできませんでした。", "線の重なり順", "Icon!")
-        return
-    }
-
-    ; [外部変形] を実行する。メニューを開かずに、その項目の
-    ; コマンド番号を直接送る（メニュー名に依存しない）。
-    ok := false
-    if (id := FindExtCmd(hwnd)) {
-        PostMessage(WM_COMMAND, id, 0, , "ahk_id " hwnd)
-        ok := true
-    } else {
-        ; 念のため、名前でたどる方法も試す
+ClickBar(name) {
+    for hwnd in WinGetList("ahk_exe jw_win.exe") {
+        ctls := []
         try {
-            MenuSelect("ahk_id " hwnd, , "その他", "外部変形")
-            ok := true
+            ctls := WinGetControls("ahk_id " hwnd)
         } catch {
-            ok := false
+            continue
+        }
+        for ctl in ctls {
+            txt := ""
+            try {
+                txt := ControlGetText(ctl, "ahk_id " hwnd)
+            } catch {
+                continue
+            }
+            if !InStr(txt, name)
+                continue
+
+            try {
+                ControlClick(ctl, "ahk_id " hwnd)
+                return true
+            } catch {
+                ; 名前で押せなかった。位置を調べて実際にクリックする。
+            }
+            try {
+                WinActivate("ahk_id " hwnd)
+                CoordMode("Mouse", "Client")
+                ControlGetPos(&cx, &cy, &cw, &ch, ctl, "ahk_id " hwnd)
+                Click((cx + cw // 2) " " (cy + ch // 2))
+                return true
+            } catch {
+                ; 次の候補へ
+            }
         }
     }
-    if !ok {
-        MsgBox("[外部変形] のメニューが見つかりませんでした。`n`n"
-             . "Ctrl + Alt + M を押すと、Jw_cad のメニュー一覧を"
-             . "メモ帳に書き出します。", "線の重なり順", "Icon!")
-        return
-    }
-
-    ; 外部変形のファイル選択（[開く] ダイアログ）
-    dlg := WaitDialog(hwnd, 5)
-    if !dlg {
-        MsgBox("ファイル選択の画面を見つけられませんでした。`n`n"
-             . "その画面を出したまま Ctrl + Alt + M を押すと、"
-             . "中身をメモ帳に書き出します。", "線の重なり順", "Icon!")
-        return
-    }
-    if !FillDialog(dlg, BAT)
-        return
-
-    ; ここで Jw_cad は範囲選択待ちになる。[全選択] を押して
-    ; 表示部を全範囲選択の状態にする。
-    ; （[全選択] が拾うのは編集可能なレイヤだけなので、
-    ;   [表示のみ] のレイヤは自動的に外れる）
-    if !WinWaitActive("ahk_id " hwnd, , 5)
-        return
-    Sleep 400
-
-    if !ClickBar(hwnd, "全選択")
-        return          ; 押せなければ、そのまま手で範囲選択すればよい
-
-    if !AUTO_OK
-        return
-
-    Sleep 200
-    ClickBar(hwnd, "選択確定")
+    return false
 }
 
 ;==============================================================
 ;  調べもの用（Ctrl + Alt + M）
-;  Jw_cad のメニューとコントロールバーの中身を書き出す。
+;  Jw_cad のウィンドウ・メニュー・ボタンの中身を書き出す。
 ;  うまく動かないときに、この内容を見れば原因がわかる。
 ;==============================================================
 DumpJw(*) {
@@ -281,7 +291,6 @@ DumpJw(*) {
              . "  menu=" (hMenu ? "あり" : "なし")
              . "  表示=" (vis ? "する" : "しない")
              . "`r`n  title=" WinGetTitle("ahk_id " hwnd) "`r`n"
-        ; そのウィンドウの中のボタン・入力欄
         ctls := []
         try {
             ctls := WinGetControls("ahk_id " hwnd)
@@ -321,7 +330,6 @@ DumpJw(*) {
                      . "  " MenuText(sub, p) "`r`n"
             }
         }
-
     }
 
     path := A_ScriptDir "\Jw_cad調査.txt"
