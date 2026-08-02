@@ -27,8 +27,10 @@ UTF8_EXT = (".ahk",)
 # （"." のときは dist 直下のファイルと exclude 以外のフォルダ）。
 ZIPS = (
     {"zip": "jww_moji_align.zip", "top": "文字位置揃え", "sub": ".",
-     "exclude": ("描画順",)},
+     "exclude": ("描画順", "jwf設定比較")},
     {"zip": "jww_draw_order.zip", "top": "描画順", "sub": "描画順",
+     "exclude": ()},
+    {"zip": "jwf_diff.zip", "top": "jwf設定比較", "sub": "jwf設定比較",
      "exclude": ()},
 )
 
