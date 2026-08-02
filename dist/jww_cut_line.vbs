@@ -10,7 +10,7 @@ Option Explicit
 '
 '   引数（省略時は入力ダイアログで指定）
 '     /c:1       円・円弧・楕円・曲線 を切断の基準にする（既定）
-'     /c:2       上記に加えて 直線 も切断の基準にする
+'     /c:2       上記に加えて、つながっている連続線も曲線とみなす
 '     /tol:数値  これより短い切れ端は作らない（既定 0.0001）
 '     /q         ダイアログを出さない（引数だけで実行）
 '
@@ -23,8 +23,9 @@ Const KIND_LINE = 1    ' 線データ
 Const KIND_ARC  = 2    ' 円・円弧・楕円・楕円弧
 
 '--- 切断の基準 -----------------------------------------------
-Const CUT_ARC = 1      ' 円・円弧・楕円・曲線
-Const CUT_ALL = 2      ' 上記＋直線
+Const CUT_ARC   = 1    ' 円・円弧・楕円と、曲線属性のある曲線
+Const CUT_CHAIN = 2    ' 上記＋つながっている連続線（曲線とみなす）
+'   どちらの場合も、つながっていない直線どうしの交点では切断しない。
 
 Const APPTITLE = "線切断"
 Const EPS      = 0.000001
@@ -43,7 +44,8 @@ Dim gCurLen                         ' いま処理中の線の長さ
 Dim gTol                            ' 許容誤差（これより短い切れ端は作らない）
 Dim gLineCount                      ' 切断できる線の本数
 Dim gArcCount                       ' 円・円弧の個数
-Dim gCurveCount                     ' 曲線を構成する線の本数
+Dim gCurveCount                     ' 曲線属性のある曲線を構成する線の本数
+Dim gChainCount                     ' 連続線を構成する線の本数
 
 '--- 要素 -----------------------------------------------------
 Class Elem
@@ -53,7 +55,8 @@ Class Elem
     Public cx, cy, r                ' 円・円弧の中心と半径
     Public sa, ea                   ' 始角・終角（度）
     Public flat, tilt               ' 扁平率・傾き（度）
-    Public inCurve                  ' 曲線属性の中にあるか
+    Public inCurve                  ' 曲線属性（cs～ce）の中にあるか
+    Public inChain                  ' つながっている連続線の一部か
 End Class
 
 Main
@@ -75,6 +78,7 @@ Sub Main()
     InitArrays
     lines = ReadAllLines(tempPath)
     ParseTemp lines
+    MarkChains
 
     If gLineCount = 0 Then
         AbortWith tempPath, "切断できる線データが選択されていません。"
@@ -87,8 +91,10 @@ Sub Main()
         WScript.Quit 0
     End If
 
-    If cutMode = CUT_ARC And gArcCount = 0 And gCurveCount = 0 Then
-        AbortWith tempPath, "切断の基準になる円・円弧・曲線が選択されていません。"
+    If gArcCount = 0 And gCurveCount = 0 Then
+        If cutMode = CUT_ARC Or gChainCount = 0 Then
+            AbortWith tempPath, "切断の基準になる円・円弧・曲線が選択されていません。"
+        End If
     End If
 
     '--- 交点を求めて切断 -------------------------------------
@@ -137,8 +143,21 @@ Sub InitArrays()
     ReDim gElems(255) : gElemCount = 0
     ReDim gS(31)      : gSCount = 0
     gCurLen = 0
-    gTol = 0.0001
-    gLineCount = 0 : gArcCount = 0 : gCurveCount = 0
+    gLineCount = 0 : gArcCount = 0 : gCurveCount = 0 : gChainCount = 0
+    LoadTol
+End Sub
+
+'--- 許容誤差を読む -------------------------------------------
+'   連続線のつながり判定にも使うので、解析より先に決めておく。
+Sub LoadTol()
+    Dim args
+
+    gTol = ParseNum(IniGet("TOL", "0.0001"))
+
+    Set args = WScript.Arguments.Named
+    If args.Exists("tol") Then gTol = ParseNum(args("tol"))
+
+    If gTol <= 0 Then gTol = 0.0001
 End Sub
 
 '==============================================================
@@ -260,6 +279,7 @@ Function NewElem(kind, raw)
     e.kind = kind
     e.text = raw
     e.inCurve = False
+    e.inChain = False
     e.flat = 1 : e.tilt = 0
     Set NewElem = e
 End Function
@@ -323,15 +343,66 @@ Function IsTarget(e)
 End Function
 
 '--- 切断する側か ---------------------------------------------
+'   曲線は線の集まりとして渡ってくるので、曲線を構成する線は
+'   基準になる。つながっていない直線どうしの交点では切断しない。
 Function IsCutter(e, cutMode)
     If e.kind = KIND_ARC Then
         IsCutter = True
     ElseIf e.kind = KIND_LINE Then
-        ' 曲線は線の集まりとして渡ってくるので、その線は常に基準になる
-        IsCutter = e.inCurve Or (cutMode = CUT_ALL)
+        IsCutter = e.inCurve Or (cutMode = CUT_CHAIN And e.inChain)
     Else
         IsCutter = False
     End If
+End Function
+
+'==============================================================
+' つながっている連続線（曲線とみなすもの）に印を付ける
+'
+'   曲線属性（cs～ce）が付いていれば ParseTemp で分かるが、
+'   属性の無い連続線は見分けが付かない。座標ファイルでは曲線の
+'   線が並んで書き出され、隣り合う線の端点は一致しているので、
+'   「並んでいる線が端点でつながっているか」で判断する。
+'   2 本以上つながっていれば連続線とみなす。
+'==============================================================
+Sub MarkChains()
+    Dim i, j, st
+
+    i = 0
+    Do While i < gElemCount
+        If IsPlainLine(gElems(i)) Then
+            st = i
+            Do While i + 1 < gElemCount
+                If Not IsPlainLine(gElems(i + 1)) Then Exit Do
+                If Not Connected(gElems(i), gElems(i + 1)) Then Exit Do
+                i = i + 1
+            Loop
+
+            If i - st + 1 >= 2 Then
+                For j = st To i
+                    gElems(j).inChain = True
+                    gChainCount = gChainCount + 1
+                Next
+            End If
+        End If
+        i = i + 1
+    Loop
+End Sub
+
+'--- 曲線属性の付いていない線か -------------------------------
+Function IsPlainLine(e)
+    IsPlainLine = (e.kind = KIND_LINE) And (Not e.inCurve)
+End Function
+
+'--- 2 本の線が端点でつながっているか -------------------------
+Function Connected(a, b)
+    Connected = SamePoint(a.x2, a.y2, b.x1, b.y1) Or _
+                SamePoint(a.x2, a.y2, b.x2, b.y2) Or _
+                SamePoint(a.x1, a.y1, b.x1, b.y1) Or _
+                SamePoint(a.x1, a.y1, b.x2, b.y2)
+End Function
+
+Function SamePoint(x1, y1, x2, y2)
+    SamePoint = (Dist(x1, y1, x2, y2) <= gTol)
 End Function
 
 '--- 外接長方形が重なっているか（総当たりを減らすための前判定） -
@@ -556,24 +627,20 @@ Function GetSettings(ByRef cutMode)
     quiet = args.Exists("q")
 
     cutMode = CutOf(ParseNum(IniGet("CUT", "1")))
-    gTol = ParseNum(IniGet("TOL", "0.0001"))
-    If gTol <= 0 Then gTol = 0.0001
-
-    If args.Exists("c")   Then cutMode = CutOf(ParseNum(args("c")))
-    If args.Exists("tol") Then
-        gTol = ParseNum(args("tol"))
-        If gTol <= 0 Then gTol = 0.0001
-    End If
+    If args.Exists("c") Then cutMode = CutOf(ParseNum(args("c")))
 
     If Not quiet Then
         s = InputBox( _
             "切断の基準にする要素を番号で指定してください。" & vbCrLf & vbCrLf & _
             "  1 : 円・円弧・楕円・曲線で切断する" & vbCrLf & _
-            "  2 : 直線でも切断する（すべての要素で切断）" & vbCrLf & vbCrLf & _
+            "  2 : つながっている連続線も曲線とみなして切断する" & vbCrLf & vbCrLf & _
+            "どちらも、つながっていない直線どうしの交点では" & vbCrLf & _
+            "切断しません。" & vbCrLf & vbCrLf & _
             "選択された要素" & vbCrLf & _
             "  切断できる線 : " & gLineCount & " 本" & vbCrLf & _
             "  円・円弧     : " & gArcCount & " 個" & vbCrLf & _
-            "  曲線の線     : " & gCurveCount & " 本" & vbCrLf & vbCrLf & _
+            "  曲線の線     : " & gCurveCount & " 本" & vbCrLf & _
+            "  連続線の線   : " & gChainCount & " 本" & vbCrLf & vbCrLf & _
             "（空欄のまま OK、または キャンセル で中止）", _
             APPTITLE, CStr(cutMode))
         If Trim(s) = "" Then Exit Function
@@ -586,7 +653,7 @@ End Function
 
 '--- 基準の正規化（範囲外の値でも落ちないように） -------------
 Function CutOf(v)
-    If v = CUT_ALL Then CutOf = CUT_ALL Else CutOf = CUT_ARC
+    If v = CUT_CHAIN Then CutOf = CUT_CHAIN Else CutOf = CUT_ARC
 End Function
 
 '==============================================================
@@ -620,9 +687,10 @@ Sub SaveIni(cutMode)
     Set f = gFso.CreateTextFile(gIniPath, True, False)
     If Err.Number <> 0 Then Err.Clear : Exit Sub
     f.WriteLine "[jww_cut_line]"
-    f.WriteLine "; CUT : 1=円・円弧・曲線で切断  2=直線でも切断"
+    f.WriteLine "; CUT : 1=円・円弧・曲線で切断  2=連続線も曲線とみなす"
     f.WriteLine "CUT=" & cutMode
     f.WriteLine "; TOL : これより短い切れ端は作らない（図面の寸法）"
+    f.WriteLine ";       連続線のつながり判定にも使う"
     f.WriteLine "TOL=" & FmtNum(gTol)
     f.Close
     On Error GoTo 0
