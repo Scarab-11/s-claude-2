@@ -359,33 +359,43 @@ End Function
 ' つながっている連続線（曲線とみなすもの）に印を付ける
 '
 '   曲線属性（cs～ce）が付いていれば ParseTemp で分かるが、
-'   属性の無い連続線は見分けが付かない。座標ファイルでは曲線の
-'   線が並んで書き出され、隣り合う線の端点は一致しているので、
-'   「並んでいる線が端点でつながっているか」で判断する。
-'   2 本以上つながっていれば連続線とみなす。
+'   属性の無い連続線は見分けが付かないので、端点が一致している
+'   線どうしを連続線とみなす。
+'
+'   座標ファイルでの並び順は見ない。曲線の線が並んで書き出される
+'   とは限らず（間に別の線が書き出されることがある）、並び順で
+'   判断すると連続線を取りこぼすため。
 '==============================================================
 Sub MarkChains()
-    Dim i, j, st
+    Dim idx(), n, i, j, a, b
 
-    i = 0
-    Do While i < gElemCount
+    '--- 曲線属性の付いていない線を集める ---------------------
+    ReDim idx(gElemCount)
+    n = 0
+    For i = 0 To gElemCount - 1
         If IsPlainLine(gElems(i)) Then
-            st = i
-            Do While i + 1 < gElemCount
-                If Not IsPlainLine(gElems(i + 1)) Then Exit Do
-                If Not Connected(gElems(i), gElems(i + 1)) Then Exit Do
-                i = i + 1
-            Loop
-
-            If i - st + 1 >= 2 Then
-                For j = st To i
-                    gElems(j).inChain = True
-                    gChainCount = gChainCount + 1
-                Next
-            End If
+            idx(n) = i
+            n = n + 1
         End If
-        i = i + 1
-    Loop
+    Next
+
+    '--- 端点を共有する線どうしに印を付ける -------------------
+    For i = 0 To n - 2
+        Set a = gElems(idx(i))
+        For j = i + 1 To n - 1
+            Set b = gElems(idx(j))
+            If Not (a.inChain And b.inChain) Then
+                If Connected(a, b) Then
+                    a.inChain = True
+                    b.inChain = True
+                End If
+            End If
+        Next
+    Next
+
+    For i = 0 To n - 1
+        If gElems(idx(i)).inChain Then gChainCount = gChainCount + 1
+    Next
 End Sub
 
 '--- 曲線属性の付いていない線か -------------------------------
@@ -401,8 +411,18 @@ Function Connected(a, b)
                 SamePoint(a.x1, a.y1, b.x2, b.y2)
 End Function
 
+'   総当たりで何度も呼ばれるので、まず縦横の差で振るい落とす
 Function SamePoint(x1, y1, x2, y2)
-    SamePoint = (Dist(x1, y1, x2, y2) <= gTol)
+    Dim dx, dy
+
+    SamePoint = False
+
+    dx = x2 - x1
+    If Abs(dx) > gTol Then Exit Function
+    dy = y2 - y1
+    If Abs(dy) > gTol Then Exit Function
+
+    SamePoint = (dx * dx + dy * dy <= gTol * gTol)
 End Function
 
 '--- 外接長方形が重なっているか（総当たりを減らすための前判定） -
