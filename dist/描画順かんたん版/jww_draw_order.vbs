@@ -387,7 +387,7 @@ End Function
 '==============================================================
 Function ReadGroup(lines, i, curLg, curLy, curLc, curLt, _
                    curCn, curCf, curPn, pend)
-    Dim j, tj, bodyText, r, isDim
+    Dim j, tj, bodyText, r, isDim, isBlock
     Dim gLg, gLy, gLc, gLt, gCn
     Dim kLg, kLy, kLc, kLt
     Dim sawLg, sawLy, sawLc, sawLt, sawCn
@@ -399,7 +399,8 @@ Function ReadGroup(lines, i, curLg, curLy, curLc, curLt, _
     sawCn = False : keySet = False : closed = False
 
     isDim = IsGroupHead(Trim(lines(i)), "msg")
-    If IsGroupHead(Trim(lines(i)), "bl") Then gBlockCount = gBlockCount + 1
+    isBlock = IsGroupHead(Trim(lines(i)), "bl")
+    If isBlock Then gBlockCount = gBlockCount + 1
     bodyText = lines(i)
     j = i + 1
 
@@ -449,12 +450,18 @@ Function ReadGroup(lines, i, curLg, curLy, curLc, curLt, _
             j = j + 1
         Loop
         If j <= UBound(lines) Then
-            ' 元データの # は読み飛ばす。下で必ず付け直す。
             If Trim(lines(j)) = "#" Then j = j + 1
         End If
+
+        ' 曲線属性(pl) には # を付けない。付けて書き戻すと、Jw_cad は
+        ' 曲線属性を線ごとにばらしてしまう（実機で確認）。
+        ' 代わりに、出力側で直後に属性行を必ず置いてまとまりを閉じる。
+        ' ブロック図形(BL) は # を付けても害が無いので、元の形のまま返す。
+        If isBlock Then bodyText = bodyText & vbLf & "#"
+        closed = True
     End If
 
-    ' 並べ替えたあとは、まとまりの終わりが必ず必要になる。
+    ' 寸法図形は # で閉じる。元データに無ければ補う。
     If Not closed Then bodyText = bodyText & vbLf & "#"
 
     PushRec kLg, kLy, kLc, kLt, curCn, curCf, curPn, pend, bodyText, True
@@ -542,6 +549,13 @@ End Function
 '--- 点を含むか（pn を書き出す必要があるか） -------------------
 Function IsPointBody(body)
     IsPointBody = (LCase(Left(LTrim(body), 2)) = "pt")
+End Function
+
+'--- 曲線属性(pl) のまとまりか --------------------------------
+Function IsPolyBody(body)
+    Dim h
+    h = LCase(Trim(Split(body, vbLf)(0)))
+    IsPolyBody = (h = "pl") Or (Left(h, 3) = "pl ")
 End Function
 
 '--- レコードの追加 -------------------------------------------
@@ -758,6 +772,11 @@ Sub WriteResult(tempPath)
         ' 本体。グループのときは複数行をまとめて出す。
         bodyLines = Split(r.body, vbLf)
         n = AppendLines(out, n, bodyLines)
+
+        ' 曲線属性(pl) のまとまりは # で閉じられない。次のレコードが
+        ' 必ず線色の行を書き直すように、覚えている値を捨てておく。
+        ' 属性行が来たところで、Jw_cad は曲線属性のまとまりを閉じる。
+        If IsPolyBody(r.body) Then lastLc = ""
 
         ' まとまりの中で属性が変わっていたら、状態を合わせておく
         If r.isGroup Then
