@@ -28,6 +28,13 @@ Option Explicit
 '     /q       ダイアログを出さない（引数だけで実行）
 '     /qn      番号だけを聞く（並べ方と番号の種類は引数で固定）
 '     /nowarn  寸法図形などが混ざっていても警告を出さない
+'     /dump    調査用。Jw_cad から受け取った jwc_temp.txt と
+'              書き戻した jwc_temp.txt を、このスクリプトと
+'              同じフォルダに次の名前で保存する。
+'                jwc_temp_元.txt    … Jw_cad が書き出したもの
+'                jwc_temp_結果.txt  … 書き戻したもの
+'              どの種類のデータが Jw_cad から渡されていないかを
+'              調べるために使う（ブロック図形など）。
 '
 '   Jw_cad Version 8.20 で使用する想定
 '==============================================================
@@ -92,6 +99,9 @@ Sub Main()
         WScript.Quit 1
     End If
 
+    ' 調査用。Jw_cad が書き出した内容を、手を付ける前に保存する。
+    DumpIfAsked tempPath, "jwc_temp_元.txt"
+
     InitArrays
     lines = ReadAllLines(tempPath)
     ParseTemp lines
@@ -117,6 +127,30 @@ Sub Main()
 
     '--- 出力 -------------------------------------------------
     WriteResult tempPath
+
+    ' 調査用。書き戻した内容も保存する。
+    DumpIfAsked tempPath, "jwc_temp_結果.txt"
+End Sub
+
+'==============================================================
+' 調査用のコピーを作る（/dump が指定されたときだけ）
+'
+'   Jw_cad がどの種類のデータを外部変形に渡しているのかは、
+'   jwc_temp.txt を直接見ないと分からない。ブロック図形のように
+'   「範囲選択には入るのに書き出されない」ものがあるため、
+'   受け取った内容と書き戻した内容の両方を残せるようにする。
+'==============================================================
+Sub DumpIfAsked(tempPath, saveName)
+    Dim args, dest
+
+    Set args = WScript.Arguments.Named
+    If Not args.Exists("dump") Then Exit Sub
+    If Not gFso.FileExists(tempPath) Then Exit Sub
+
+    dest = gFso.BuildPath(gScriptDir, saveName)
+    On Error Resume Next
+    gFso.CopyFile tempPath, dest, True
+    On Error GoTo 0
 End Sub
 
 '==============================================================
