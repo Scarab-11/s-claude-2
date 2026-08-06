@@ -75,10 +75,15 @@ Dim gDimCount               ' 寸法コマンドで作られた文字(cs)の数
 '   次に属性行が現れるまで有効。並べ替えると継承関係が崩れる
 '   ため、各要素が自分の属性を持ち歩けるようにしておく。
 Class Rec
-    Public lg, ly, lc, lt   ' 有効だった属性行（lg0 / ly3 / lc2 / lt1 …）
-    Public cn               ' 有効だった文字種行（文字要素のときだけ使う）
+    Public lg, ly, lc, lt   ' 出力前に書き直す属性行（lg0 / ly3 / lc2 / lt1 …）
+    Public cn               ' 文字種行（cn0 2 2 0 1 など。文字を含むときだけ使う）
+    Public cf               ' 文字フォント行（cn"$<ＭＳ ゴシック> など）
+    Public pn               ' 点の種類行（pn6 など。点のときだけ使う）
     Public prefix           ' 直前にあった未知の修飾行（vbLf 区切り）
-    Public body             ' 要素行そのもの
+    Public body             ' 要素行そのもの。グループのときは複数行（vbLf 区切り）
+    Public isGroup          ' 曲線属性(pl) / 寸法図形(msg) のまとまりか
+    Public keyLg, keyLy, keyLc, keyLt   ' 並べ替えに使う属性
+    Public outLg, outLy, outLc, outLt, outCn  ' 出し終えた時点の属性
     Public seq              ' 元の並び順（安定ソート用）
     Public rank             ' 並べ替えの順位
 End Class
@@ -191,32 +196,46 @@ End Sub
 '==============================================================
 ' jwc_temp.txt の解析
 '
-'   ・空行 / # で始まる行 : 捨てる
+'   ・空行                : 捨てる
+'   ・# だけの行          : まとまりの外にあるものは捨てる
+'                           （pl / msg の中では終わりの印として使う）
 '   ・h  で始まる行       : 図面情報。書き戻さない（hq を残すと
 '                           「未実行」になるため必ず捨てる）
 '   ・lg/ly/lc/lt         : 属性。状態として覚え、要素に持たせる
-'   ・cn                  : 文字種。状態として覚える
+'   ・cn0〜cn9            : 文字種。状態として覚える
+'   ・cn"$<…>            : 文字フォント。cn とは別に覚える
+'   ・pn0〜pn9            : 点の種類。状態として覚える
+'   ・pl                  : 曲線属性（ポリライン）の始まり。
+'                           続く作図要素の行と終わりの # までを
+'                           1 つのまとまりとして扱う
+'   ・msg                 : 寸法図形の始まり。終わりの # までを
+'                           1 つのまとまりとして扱う
 '   ・要素行              : レコードにする
 '   ・それ以外            : 分類できない行。Jw_cad のデータでは
 '                           要素を修飾する行は必ずその要素の前に
 '                           置かれるので、次の要素にくっつけて
 '                           一緒に動かす（ソリッドの色指定など）
+'
+'   pl と msg を 1 つのまとまりとして扱うのは、要素ごとに並べ替えて
+'   しまうと曲線属性や寸法図形がばらばらの位置へ飛び、まとまりが
+'   壊れるためである。まとまりの終わりの # は、並べ替えたあとは
+'   必ず必要になるので、元データに無くても補って出力する。
 '==============================================================
 Sub ParseTemp(lines)
     Dim i, raw, t
-    Dim curLg, curLy, curLc, curLt, curCn, pend
+    Dim curLg, curLy, curLc, curLt, curCn, curCf, curPn, pend
 
-    curLg = "" : curLy = "" : curLc = "" : curLt = "" : curCn = ""
+    curLg = "" : curLy = "" : curLc = "" : curLt = ""
+    curCn = "" : curCf = "" : curPn = ""
     pend = ""
 
-    For i = 0 To UBound(lines)
+    i = 0
+    Do While i <= UBound(lines)
         raw = lines(i)
         t = Trim(raw)
 
-        If t = "" Then
-            ' 空行は捨てる
-        ElseIf Left(t, 1) = "#" Then
-            ' コメント行は捨てる
+        If t = "" Or t = "#" Then
+            ' 空行、まとまりの外の # は捨てる
         ElseIf IsAttrLine(t, "lg") Then
             curLg = t
         ElseIf IsAttrLine(t, "ly") Then
@@ -225,96 +244,150 @@ Sub ParseTemp(lines)
             curLc = t
         ElseIf IsAttrLine(t, "lt") Then
             curLt = t
-        ElseIf Left(t, 2) = "cn" Then
+        ElseIf Left(t, 3) = "cn""" Then
+            curCf = t
+        ElseIf LCase(Left(t, 2)) = "cn" Then
             curCn = t
+        ElseIf IsPenLine(t) Then
+            curPn = t
         ElseIf Left(t, 1) = "h" Then
             ' 図面情報（hq を含む）は出力しない
+        ElseIf IsGroupHead(t, "pl") Or IsGroupHead(t, "msg") Then
+            i = ReadGroup(lines, i, curLg, curLy, curLc, curLt, _
+                          curCn, curCf, curPn, pend)
+            pend = ""
         ElseIf IsElementLine(t) Then
             If LCase(Left(t, 2)) = "cs" Then gDimCount = gDimCount + 1
-            PushRec curLg, curLy, curLc, curLt, curCn, pend, raw
+            PushRec curLg, curLy, curLc, curLt, curCn, curCf, curPn, pend, raw, False
             pend = ""
         Else
-            gUnknownCount = gUnknownCount + 1
-            If gUnknownFirst = "" Then gUnknownFirst = t
+            If Not IsKnownModifier(t) Then
+                gUnknownCount = gUnknownCount + 1
+                If gUnknownFirst = "" Then gUnknownFirst = t
+            End If
             If pend = "" Then pend = raw Else pend = pend & vbLf & raw
         End If
-    Next
+
+        i = i + 1
+    Loop
 
     gTailPend = pend
     gEndLg = curLg : gEndLy = curLy : gEndLc = curLc : gEndLt = curLt
 End Sub
 
-'--- 「lg0」「lya」「lt11」のような属性行か ---------------------
-Function IsAttrLine(t, prefix)
+'--- 「pl」「msg」などのまとまりの先頭行か ---------------------
+Function IsGroupHead(t, word)
+    Dim s
+    s = LCase(t)
+    IsGroupHead = (s = word) Or (Left(s, Len(word) + 1) = word & " ")
+End Function
+
+'--- 「pn6」のような点の種類の行か -----------------------------
+Function IsPenLine(t)
     Dim i, c
-
-    IsAttrLine = False
+    IsPenLine = False
     If Len(t) < 3 Then Exit Function
-    If LCase(Left(t, 2)) <> prefix Then Exit Function
-
-    ' 後ろは 0-9 / a-f の 1〜2 文字だけ（lt11〜lt19 があるため 2 文字まで）
-    If Len(t) > 4 Then Exit Function
+    If LCase(Left(t, 2)) <> "pn" Then Exit Function
     For i = 3 To Len(t)
-        c = LCase(Mid(t, i, 1))
-        If Not ((c >= "0" And c <= "9") Or (c >= "a" And c <= "f")) Then Exit Function
+        c = Mid(t, i, 1)
+        If c < "0" Or c > "9" Then Exit Function
     Next
-
-    IsAttrLine = True
+    IsPenLine = True
 End Function
 
-'--- 作図要素の行か -------------------------------------------
-'   線 は「x1 y1 x2 y2」と数値で始まる。ほかは 2 文字の識別子。
-Function IsElementLine(t)
-    Dim c, h2
-
-    IsElementLine = False
-
-    c = Left(t, 1)
-    If (c >= "0" And c <= "9") Or c = "-" Or c = "+" Or c = "." Then
-        IsElementLine = True
-        Exit Function
-    End If
-
-    h2 = LCase(Left(t, 2))
-    Select Case h2
-        Case "ci"       ' 円・円弧・楕円
-            IsElementLine = True
-        Case "pt"       ' 点
-            IsElementLine = True
-        Case "ch"       ' 文字（横書き）
-            IsElementLine = True
-        Case "cv"       ' 文字（縦書き）
-            IsElementLine = True
-        Case "cs"       ' 寸法コマンドで作成した文字
-            IsElementLine = True
-        Case "sl"       ' ソリッド
-            IsElementLine = True
-    End Select
+'--- 種類は分かるが、そのまま次の要素につけて動かす行か --------
+'   ソリッドの色指定（sc 255 0 0）など。警告の対象にしない。
+Function IsKnownModifier(t)
+    IsKnownModifier = (LCase(Left(t, 3)) = "sc ")
 End Function
 
-'--- 文字要素か（cn を書き出す必要があるか） -------------------
-Function IsTextBody(body)
-    Dim h2
-    h2 = LCase(Left(LTrim(body), 2))
-    IsTextBody = (h2 = "ch" Or h2 = "cv" Or h2 = "cs")
+'==============================================================
+' 曲線属性（pl）／寸法図形（msg）のまとまりを読む
+'
+'   Jw_cad は、まとまりを次の形で渡してくる。
+'
+'       pl                     msg
+'        （線の行）             （寸法線の行）
+'        …                     cs …（寸法値）
+'       #                      #
+'
+'   まとまりの中には線色などの属性行が入ることがある。
+'   混色の曲線属性がその例で、1 つの pl の中で lc が変わる。
+'   そのため、まとまりの終わりは次のどちらかで判断する。
+'
+'     ・# の行（取り込んで終わり）
+'     ・次の pl / msg の行（取り込まずに終わり）
+'
+'   終わりの # が無い場合（次が属性行のときは Jw_cad が省略する）、
+'   並べ替えたあとは必ず必要になるので補って出力する。
+'
+'   並べ替えに使う属性は「まとまりの中の最初の作図要素」の時点の
+'   ものを使う（曲線属性なら先頭の線、寸法図形なら寸法線の線色）。
+'
+'   戻り値 : 読み終えた行の位置
+'==============================================================
+Function ReadGroup(lines, i, curLg, curLy, curLc, curLt, _
+                   curCn, curCf, curPn, pend)
+    Dim j, tj, bodyText, r
+    Dim gLg, gLy, gLc, gLt, gCn
+    Dim kLg, kLy, kLc, kLt
+    Dim sawLg, sawLy, sawLc, sawLt, sawCn
+    Dim keySet, closed
+
+    gLg = curLg : gLy = curLy : gLc = curLc : gLt = curLt : gCn = curCn
+    kLg = curLg : kLy = curLy : kLc = curLc : kLt = curLt
+    sawLg = False : sawLy = False : sawLc = False : sawLt = False
+    sawCn = False : keySet = False : closed = False
+
+    bodyText = lines(i)
+    j = i + 1
+    Do While j <= UBound(lines)
+        tj = Trim(lines(j))
+        If IsGroupHead(tj, "pl") Or IsGroupHead(tj, "msg") Then Exit Do
+
+        bodyText = bodyText & vbLf & lines(j)
+        j = j + 1
+
+        If tj = "#" Then
+            closed = True
+            Exit Do
+        ElseIf IsAttrLine(tj, "lg") Then
+            gLg = tj : sawLg = True
+        ElseIf IsAttrLine(tj, "ly") Then
+            gLy = tj : sawLy = True
+        ElseIf IsAttrLine(tj, "lc") Then
+            gLc = tj : sawLc = True
+        ElseIf IsAttrLine(tj, "lt") Then
+            gLt = tj : sawLt = True
+        ElseIf LCase(Left(tj, 2)) = "cn" Then
+            gCn = tj : sawCn = True
+        ElseIf IsElementLine(tj) Then
+            If LCase(Left(tj, 2)) = "cs" Then gDimCount = gDimCount + 1
+            If Not keySet Then
+                kLg = gLg : kLy = gLy : kLc = gLc : kLt = gLt
+                keySet = True
+            End If
+        End If
+    Loop
+    If Not closed Then bodyText = bodyText & vbLf & "#"
+
+    PushRec kLg, kLy, kLc, kLt, curCn, curCf, curPn, pend, bodyText, True
+
+    ' まとまりの中で実際に書き出される属性行だけを「出し終えた
+    ' 時点の属性」として記録する。書き出されない属性まで記録すると、
+    ' 次のレコードで必要な属性行が省略されてしまう。
+    Set r = gRecs(gRecCount - 1)
+    If sawLg Then r.outLg = gLg
+    If sawLy Then r.outLy = gLy
+    If sawLc Then r.outLc = gLc
+    If sawLt Then r.outLt = gLt
+    If sawCn Then r.outCn = gCn
+
+    ' まとまりの中で変わった属性は、以降にも引き継ぐ
+    curLg = gLg : curLy = gLy : curLc = gLc : curLt = gLt : curCn = gCn
+
+    ReadGroup = j - 1
 End Function
-
-'--- レコードの追加 -------------------------------------------
-Sub PushRec(lg, ly, lc, lt, cn, prefix, body)
-    Dim r
-
-    Set r = New Rec
-    r.lg = lg : r.ly = ly : r.lc = lc : r.lt = lt
-    r.cn = cn
-    r.prefix = prefix
-    r.body = body
-    r.seq = gRecCount
-    r.rank = 0
-
-    If gRecCount > UBound(gRecs) Then ReDim Preserve gRecs(gRecCount * 2 + 1)
-    Set gRecs(gRecCount) = r
-    gRecCount = gRecCount + 1
-End Sub
 
 '==============================================================
 ' 並べ替えの順位を決める
@@ -361,10 +434,10 @@ End Sub
 '--- レコードの「番号」を取り出す -----------------------------
 Function KeyOf(r, keyKind)
     Select Case keyKind
-        Case KEY_COLOR : KeyOf = AttrNum(r.lc)
-        Case KEY_TYPE  : KeyOf = AttrNum(r.lt)
-        Case KEY_LAYER : KeyOf = AttrNum(r.ly)
-        Case KEY_GROUP : KeyOf = AttrNum(r.lg)
+        Case KEY_COLOR : KeyOf = AttrNum(r.keyLc)
+        Case KEY_TYPE  : KeyOf = AttrNum(r.keyLt)
+        Case KEY_LAYER : KeyOf = AttrNum(r.keyLy)
+        Case KEY_GROUP : KeyOf = AttrNum(r.keyLg)
         Case Else      : KeyOf = 0
     End Select
 End Function
@@ -465,17 +538,25 @@ End Function
 '==============================================================
 Sub WriteResult(tempPath)
     Dim out()
-    Dim n, i, r
-    Dim lastLg, lastLy, lastLc, lastLt, lastCn
+    Dim n, i, r, bodyLines, need
+    Dim lastLg, lastLy, lastLc, lastLt, lastCn, lastCf, lastPn
 
-    ' 1 要素あたり 属性 4 行＋文字種 1 行＋本体 1 行、それに
-    ' 分類できなかった行と末尾の属性復元ぶんを足しておけば足りる。
-    ReDim out(gRecCount * 6 + gUnknownCount + 16)
+    ' 出力に必要な行数を先に数える。曲線属性のまとまりは 1 つで
+    ' 数百行になることがあるので、倍率で見積もってはいけない。
+    ' 1 レコードにつき 属性 4 行＋文字種 2 行＋点の種類 1 行を上限とする。
+    need = 1 + 16
+    For i = 0 To gRecCount - 1
+        Set r = gRecs(i)
+        need = need + 7 + CountLines(r.body) + CountLines(r.prefix)
+    Next
+    need = need + CountLines(gTailPend)
+    ReDim out(need)
     n = 0
 
     out(n) = "hd" : n = n + 1
 
-    lastLg = "" : lastLy = "" : lastLc = "" : lastLt = "" : lastCn = ""
+    lastLg = "" : lastLy = "" : lastLc = "" : lastLt = ""
+    lastCn = "" : lastCf = "" : lastPn = ""
 
     For i = 0 To gRecCount - 1
         Set r = gRecs(i)
@@ -488,13 +569,29 @@ Sub WriteResult(tempPath)
 
         If IsTextBody(r.body) Then
             If r.cn <> "" And r.cn <> lastCn Then out(n) = r.cn : n = n + 1 : lastCn = r.cn
+            If r.cf <> "" And r.cf <> lastCf Then out(n) = r.cf : n = n + 1 : lastCf = r.cf
+        End If
+
+        If IsPointBody(r.body) Then
+            If r.pn <> "" And r.pn <> lastPn Then out(n) = r.pn : n = n + 1 : lastPn = r.pn
         End If
 
         If r.prefix <> "" Then
             n = AppendLines(out, n, Split(r.prefix, vbLf))
         End If
 
-        out(n) = r.body : n = n + 1
+        ' 本体。グループのときは複数行をまとめて出す。
+        bodyLines = Split(r.body, vbLf)
+        n = AppendLines(out, n, bodyLines)
+
+        ' まとまりの中で属性が変わっていたら、状態を合わせておく
+        If r.isGroup Then
+            If r.outLg <> "" Then lastLg = r.outLg
+            If r.outLy <> "" Then lastLy = r.outLy
+            If r.outLc <> "" Then lastLc = r.outLc
+            If r.outLt <> "" Then lastLt = r.outLt
+            If r.outCn <> "" Then lastCn = r.outCn
+        End If
     Next
 
     If gTailPend <> "" Then n = AppendLines(out, n, Split(gTailPend, vbLf))
@@ -509,6 +606,15 @@ Sub WriteResult(tempPath)
     ReDim Preserve out(n - 1)
     WriteAllText tempPath, Join(out, vbCrLf) & vbCrLf
 End Sub
+
+'--- vbLf 区切りの文字列の行数 --------------------------------
+Function CountLines(s)
+    If s = "" Then
+        CountLines = 0
+    Else
+        CountLines = UBound(Split(s, vbLf)) + 1
+    End If
+End Function
 
 '--- 出力配列に複数行を追加（out はあらかじめ十分な大きさ） ----
 Function AppendLines(out, ByVal n, arr)
@@ -541,21 +647,13 @@ Function ConfirmRisky()
 
     Set args = WScript.Arguments.Named
     If args.Exists("nowarn") Then Exit Function
-    If gDimCount = 0 And gUnknownCount = 0 Then Exit Function
+    If gUnknownCount = 0 Then Exit Function
 
     msg = "選択した範囲に、並べ替えると形が崩れるかもしれない" & vbCrLf & _
           "データが含まれています。" & vbCrLf & vbCrLf
 
-    If gDimCount > 0 Then
-        msg = msg & "  ・寸法コマンドで作られた文字 : " & gDimCount & " 個" & vbCrLf & _
-                    "    寸法図形はバラバラの線と文字になります" & vbCrLf & vbCrLf
-    End If
-
-    If gUnknownCount > 0 Then
-        msg = msg & "  ・種類の分からないデータ : " & gUnknownCount & " 行" & vbCrLf & _
-                    "    ブロック図形などの可能性があります" & vbCrLf & _
-                    "    例 : " & Left(gUnknownFirst, 30) & vbCrLf & vbCrLf
-    End If
+    msg = msg & "  ・種類の分からないデータ : " & gUnknownCount & " 行" & vbCrLf & _
+                "    例 : " & Left(gUnknownFirst, 30) & vbCrLf & vbCrLf
 
     msg = msg & "外したいときは [いいえ] を選んでください。図面は" & vbCrLf & _
                 "変わりません。そのデータのあるレイヤを [表示のみ] に" & vbCrLf & _
