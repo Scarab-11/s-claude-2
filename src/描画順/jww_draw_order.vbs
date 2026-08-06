@@ -69,6 +69,7 @@ Dim gEndLg, gEndLy, gEndLc, gEndLt   ' 読み終えた時点の属性（書込�
 Dim gUnknownCount           ' 分類できなかった行の数
 Dim gUnknownFirst           ' その最初の 1 行
 Dim gDimCount               ' 寸法コマンドで作られた文字(cs)の数
+Dim gBlockCount             ' ブロック図形(BL)の数
 
 '--- 要素レコード ---------------------------------------------
 '   Jw_cad のデータは「属性行 → 要素行」の順に並び、属性行は
@@ -134,6 +135,9 @@ Sub RunAll(tempPath)
         WriteAllText tempPath, "he 並べ替えるデータが選択されていません。" & vbCrLf
         Exit Sub
     End If
+
+    '--- ブロック図形が入っていたら必ず知らせる ----------------
+    If Not ConfirmBlocks() Then Exit Sub
 
     '--- 危ないデータが混ざっていないか確かめる ----------------
     If Not ConfirmRisky() Then Exit Sub
@@ -241,6 +245,7 @@ Sub InitArrays()
     gEndLg = "" : gEndLy = "" : gEndLc = "" : gEndLt = ""
     gUnknownCount = 0 : gUnknownFirst = ""
     gDimCount = 0
+    gBlockCount = 0
 End Sub
 
 '==============================================================
@@ -382,7 +387,7 @@ End Function
 '==============================================================
 Function ReadGroup(lines, i, curLg, curLy, curLc, curLt, _
                    curCn, curCf, curPn, pend)
-    Dim j, tj, bodyText, r
+    Dim j, tj, bodyText, r, isDim
     Dim gLg, gLy, gLc, gLt, gCn
     Dim kLg, kLy, kLc, kLt
     Dim sawLg, sawLy, sawLc, sawLt, sawCn
@@ -393,37 +398,63 @@ Function ReadGroup(lines, i, curLg, curLy, curLc, curLt, _
     sawLg = False : sawLy = False : sawLc = False : sawLt = False
     sawCn = False : keySet = False : closed = False
 
+    isDim = IsGroupHead(Trim(lines(i)), "msg")
+    If IsGroupHead(Trim(lines(i)), "bl") Then gBlockCount = gBlockCount + 1
     bodyText = lines(i)
     j = i + 1
-    Do While j <= UBound(lines)
-        tj = Trim(lines(j))
-        If IsGroupHead(tj, "pl") Or IsGroupHead(tj, "msg") _
-            Or IsGroupHead(tj, "bl") Then Exit Do
 
-        bodyText = bodyText & vbLf & lines(j)
-        j = j + 1
+    If isDim Then
+        ' 寸法図形は中に属性行（lc2 / cn4）が入るので、# まで読む。
+        Do While j <= UBound(lines)
+            tj = Trim(lines(j))
+            If IsGroupHead(tj, "pl") Or IsGroupHead(tj, "msg") _
+                Or IsGroupHead(tj, "bl") Then Exit Do
 
-        If tj = "#" Then
-            closed = True
-            Exit Do
-        ElseIf IsAttrLine(tj, "lg") Then
-            gLg = tj : sawLg = True
-        ElseIf IsAttrLine(tj, "ly") Then
-            gLy = tj : sawLy = True
-        ElseIf IsAttrLine(tj, "lc") Then
-            gLc = tj : sawLc = True
-        ElseIf IsAttrLine(tj, "lt") Then
-            gLt = tj : sawLt = True
-        ElseIf LCase(Left(tj, 2)) = "cn" Then
-            gCn = tj : sawCn = True
-        ElseIf IsElementLine(tj) Then
-            If LCase(Left(tj, 2)) = "cs" Then gDimCount = gDimCount + 1
-            If Not keySet Then
-                kLg = gLg : kLy = gLy : kLc = gLc : kLt = gLt
-                keySet = True
+            bodyText = bodyText & vbLf & lines(j)
+            j = j + 1
+
+            If tj = "#" Then
+                closed = True
+                Exit Do
+            ElseIf IsAttrLine(tj, "lg") Then
+                gLg = tj : sawLg = True
+            ElseIf IsAttrLine(tj, "ly") Then
+                gLy = tj : sawLy = True
+            ElseIf IsAttrLine(tj, "lc") Then
+                gLc = tj : sawLc = True
+            ElseIf IsAttrLine(tj, "lt") Then
+                gLt = tj : sawLt = True
+            ElseIf LCase(Left(tj, 2)) = "cn" Then
+                gCn = tj : sawCn = True
+            ElseIf IsElementLine(tj) Then
+                If LCase(Left(tj, 2)) = "cs" Then gDimCount = gDimCount + 1
+                If Not keySet Then
+                    kLg = gLg : kLy = gLy : kLc = gLc : kLt = gLt
+                    keySet = True
+                End If
             End If
+        Loop
+    Else
+        ' 曲線属性(pl) とブロック図形(BL) は、続く作図要素の行までが
+        ' まとまり。属性行が現れたらそこで終わり。
+        '   pl                     ← 始まり
+        '    （線の行が続く）
+        '   lc2                    ← 属性行が来たら、そこまで
+        '
+        ' Jw_cad は、次が属性行のときに限って終わりの # を省略する。
+        ' 実際のデータで 6 組すべてがこの規則に一致した。
+        Do While j <= UBound(lines)
+            If Not IsElementLine(Trim(lines(j))) Then Exit Do
+            bodyText = bodyText & vbLf & lines(j)
+            j = j + 1
+        Loop
+        If j <= UBound(lines) Then
+            ' 元データの # は読み飛ばす。下で必ず付け直す。
+            If Trim(lines(j)) = "#" Then j = j + 1
         End If
-    Loop
+    End If
+
+    ' 並べ替えたあとは、まとまりの終わりが必ず必要になる。
     If Not closed Then bodyText = bodyText & vbLf & "#"
 
     PushRec kLg, kLy, kLc, kLt, curCn, curCf, curPn, pend, bodyText, True
@@ -770,6 +801,39 @@ Function AppendLines(out, ByVal n, arr)
         End If
     Next
     AppendLines = n
+End Function
+
+'==============================================================
+' ブロック図形が入っていないか確かめる
+'
+'   Jw_cad はブロック図形を「BL x y "ブロック名」の 1 行で渡して
+'   くるが、外部変形から書き戻す手段が無い。hd で消したあと戻せない
+'   ため、範囲に入れるとブロック図形は図面から消える。
+'
+'   黙って消すわけにはいかないので、必ず知らせて選んでもらう。
+'   /nowarn では抑制しない（消えることは警告ではなく実害のため）。
+'
+'   戻り値 : False なら中止（jwc_temp.txt を書き換えないので
+'            Jw_cad 側は「未実行」となり図面は変わらない）
+'==============================================================
+Function ConfirmBlocks()
+    Dim msg
+
+    ConfirmBlocks = True
+    If gBlockCount = 0 Then Exit Function
+
+    msg = "選択した範囲にブロック図形が " & gBlockCount & " 個あります。" & vbCrLf & vbCrLf & _
+          "外部変形はブロック図形を書き戻せません。" & vbCrLf & _
+          "このまま実行すると、ブロック図形は図面から消えます。" & vbCrLf & vbCrLf & _
+          "消したくない場合は [いいえ] を選んでください。" & vbCrLf & _
+          "図面は変わりません。ブロック図形のあるレイヤを" & vbCrLf & _
+          "[表示のみ] にしてから選び直すと、範囲選択の対象から" & vbCrLf & _
+          "外れます。" & vbCrLf & vbCrLf & _
+          "ブロック図形が消えてもよいので実行しますか？"
+
+    If MsgBox(msg, vbYesNo + vbExclamation + vbDefaultButton2, APPTITLE) <> vbYes Then
+        ConfirmBlocks = False
+    End If
 End Function
 
 '==============================================================
