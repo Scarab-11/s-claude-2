@@ -260,6 +260,9 @@ End Sub
 '                           1 つのまとまりとして扱う
 '   ・msg                 : 寸法図形の始まり。終わりの # までを
 '                           1 つのまとまりとして扱う
+'   ・BL                  : ブロック図形の配置。
+'                           「BL x y "ブロック名」と # の組。
+'                           これも 1 つのまとまりとして扱う
 '   ・要素行              : レコードにする
 '   ・それ以外            : 分類できない行。Jw_cad のデータでは
 '                           要素を修飾する行は必ずその要素の前に
@@ -302,7 +305,8 @@ Sub ParseTemp(lines)
             curPn = t
         ElseIf Left(t, 1) = "h" Then
             ' 図面情報（hq を含む）は出力しない
-        ElseIf IsGroupHead(t, "pl") Or IsGroupHead(t, "msg") Then
+        ElseIf IsGroupHead(t, "pl") Or IsGroupHead(t, "msg") _
+            Or IsGroupHead(t, "bl") Then
             i = ReadGroup(lines, i, curLg, curLy, curLc, curLt, _
                           curCn, curCf, curPn, pend)
             pend = ""
@@ -356,8 +360,8 @@ End Function
 '
 '   Jw_cad は、まとまりを次の形で渡してくる。
 '
-'       pl                     msg
-'        （線の行）             （寸法線の行）
+'       pl                     msg                    BL x y "1
+'        （線の行）             （寸法線の行）          #
 '        …                     cs …（寸法値）
 '       #                      #
 '
@@ -393,7 +397,8 @@ Function ReadGroup(lines, i, curLg, curLy, curLc, curLt, _
     j = i + 1
     Do While j <= UBound(lines)
         tj = Trim(lines(j))
-        If IsGroupHead(tj, "pl") Or IsGroupHead(tj, "msg") Then Exit Do
+        If IsGroupHead(tj, "pl") Or IsGroupHead(tj, "msg") _
+            Or IsGroupHead(tj, "bl") Then Exit Do
 
         bodyText = bodyText & vbLf & lines(j)
         j = j + 1
@@ -438,6 +443,95 @@ Function ReadGroup(lines, i, curLg, curLy, curLc, curLt, _
 
     ReadGroup = j - 1
 End Function
+
+'--- 「lg0」「lya」「lt11」のような属性行か ---------------------
+Function IsAttrLine(t, prefix)
+    Dim i, c
+
+    IsAttrLine = False
+    If Len(t) < 3 Then Exit Function
+    If LCase(Left(t, 2)) <> prefix Then Exit Function
+
+    ' 後ろは 0-9 / a-f の 1〜2 文字だけ（lt11〜lt19 があるため 2 文字まで）
+    If Len(t) > 4 Then Exit Function
+    For i = 3 To Len(t)
+        c = LCase(Mid(t, i, 1))
+        If Not ((c >= "0" And c <= "9") Or (c >= "a" And c <= "f")) Then Exit Function
+    Next
+
+    IsAttrLine = True
+End Function
+
+'--- 作図要素の行か -------------------------------------------
+'   線 は「x1 y1 x2 y2」と数値で始まる。ほかは 2 文字の識別子。
+Function IsElementLine(t)
+    Dim c, h2
+
+    IsElementLine = False
+
+    c = Left(t, 1)
+    If (c >= "0" And c <= "9") Or c = "-" Or c = "+" Or c = "." Then
+        IsElementLine = True
+        Exit Function
+    End If
+
+    h2 = LCase(Left(t, 2))
+    Select Case h2
+        Case "ci"       ' 円・円弧・楕円
+            IsElementLine = True
+        Case "pt"       ' 点
+            IsElementLine = True
+        Case "ch"       ' 文字（横書き）
+            IsElementLine = True
+        Case "cv"       ' 文字（縦書き）
+            IsElementLine = True
+        Case "cs"       ' 寸法コマンドで作成した文字
+            IsElementLine = True
+        Case "sl"       ' ソリッド
+            IsElementLine = True
+    End Select
+End Function
+
+'--- 文字を含むか（cn / フォント行を書き出す必要があるか） ------
+'   グループのときは複数行なので、中の行を全部見る。
+Function IsTextBody(body)
+    Dim arr, i, h2
+
+    IsTextBody = False
+    arr = Split(body, vbLf)
+    For i = 0 To UBound(arr)
+        h2 = LCase(Left(LTrim(arr(i)), 2))
+        If h2 = "ch" Or h2 = "cv" Or h2 = "cs" Then
+            IsTextBody = True
+            Exit Function
+        End If
+    Next
+End Function
+
+'--- 点を含むか（pn を書き出す必要があるか） -------------------
+Function IsPointBody(body)
+    IsPointBody = (LCase(Left(LTrim(body), 2)) = "pt")
+End Function
+
+'--- レコードの追加 -------------------------------------------
+Sub PushRec(lg, ly, lc, lt, cn, cf, pn, prefix, body, isGroup)
+    Dim r
+
+    Set r = New Rec
+    r.lg = lg : r.ly = ly : r.lc = lc : r.lt = lt
+    r.cn = cn : r.cf = cf : r.pn = pn
+    r.prefix = prefix
+    r.body = body
+    r.isGroup = isGroup
+    r.keyLg = lg : r.keyLy = ly : r.keyLc = lc : r.keyLt = lt
+    r.outLg = "" : r.outLy = "" : r.outLc = "" : r.outLt = "" : r.outCn = ""
+    r.seq = gRecCount
+    r.rank = 0
+
+    If gRecCount > UBound(gRecs) Then ReDim Preserve gRecs(gRecCount * 2 + 1)
+    Set gRecs(gRecCount) = r
+    gRecCount = gRecCount + 1
+End Sub
 
 '==============================================================
 ' 並べ替えの順位を決める

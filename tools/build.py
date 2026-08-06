@@ -16,6 +16,8 @@ import shutil
 import sys
 import zipfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "src")
 DIST = os.path.join(ROOT, "dist")
@@ -85,6 +87,14 @@ def make_zip(spec):
 
 
 def main():
+    # VBScript は実行するまで誤りが分からないので、先に静的検査を通す。
+    # 検査で落ちたものを dist に出すと、Jw_cad 側で「未実行」になる。
+    import check_vbs
+
+    if check_vbs.main() != 0:
+        print("\n.vbs の検査で問題が見つかったため、ビルドを中止します。")
+        return 1
+
     if os.path.isdir(DIST):
         shutil.rmtree(DIST)
 
