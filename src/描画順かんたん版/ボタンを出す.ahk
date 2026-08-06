@@ -14,15 +14,8 @@
 ;
 ;  操作はこれだけです。設定はひとつもありません。
 ;
-;  ボタンは Jw_cad と連動します。
-;    ・Jw_cad が前面にあるときだけ出ます
-;    ・別のソフトに切り替えると引っ込みます
-;    ・Jw_cad を終了すると消えます（デスクトップに残りません）
-;    ・Jw_cad をまた起動すると、ひとりでに出てきます
-;
-;  ドラッグして好きな場所に置けます。位置は覚えています。
-;  完全に終わらせるときは、画面右下の通知領域にある
-;  AutoHotkey のアイコンを右クリックして [Exit] を選びます。
+;  ボタンは常に手前に出ます。ドラッグして好きな場所に置けます。
+;  終了はボタンの右上の × です。
 ;
 ;  隣の [?] は調べもの用です。うまく動かないときに押すと、
 ;  そのときの Jw_cad の中身をメモ帳に書き出します。
@@ -53,44 +46,7 @@ btn.SetFont("s10")
 btn.AddButton("xm ym w110 h30", "線の重なり順").OnEvent("Click", Go)
 btn.AddButton("x+4 yp w28 h30", "?").OnEvent("Click", (*) => DumpJw())
 btn.OnEvent("Close", (*) => ExitApp())
-
-; いったん位置だけ決めて、隠しておく。
-; 出すかどうかは下の見張りが決める。
-btn.Show("Hide x" (A_ScreenWidth - 190) " y8")
-shown := false
-
-TrayTip("Jw_cad の画面を前面にすると`n[線の重なり順] ボタンが出ます。", "線の重なり順")
-SetTimer(Watch, 400)
-
-;==============================================================
-;  Jw_cad と連動させる
-;
-;  ・Jw_cad が動いていて、かつ前面にあるときだけ出す
-;  ・Jw_cad を終了したら引っ込める（デスクトップに残さない）
-;  ・Jw_cad をまた起動したら、ひとりでに出てくる
-;==============================================================
-Watch() {
-    global btn, shown
-
-    if !WinExist("ahk_exe jw_win.exe") {
-        if shown {
-            btn.Hide()
-            shown := false
-        }
-        return
-    }
-
-    ; Jw_cad のどの画面でも、このボタン自身でも「前面」とみなす
-    front := WinActive("ahk_exe jw_win.exe") || WinActive("ahk_id " btn.Hwnd)
-
-    if (front && !shown) {
-        btn.Show("NoActivate")
-        shown := true
-    } else if (!front && shown) {
-        btn.Hide()
-        shown := false
-    }
-}
+btn.Show("x" (A_ScreenWidth - 190) " y8 NoActivate")
 
 ;==============================================================
 ;  ボタンを押したときの動き（ここが全部）
@@ -134,9 +90,8 @@ Go(*) {
         ; 一覧に無い＝別のフォルダを見ている。
         ; 最初の 1 回だけ手で選んでもらう。Jw_cad はそのフォルダを
         ; 覚えるので、次からは上の自動選択が当たる。
-        ToolTip("最初の 1 回だけ、この画面で下のファイルを`n"
-              . "ダブルクリックしてください。`n`n"
-              . BAT "`n`n"
+        ToolTip("最初の 1 回だけ、この画面で`n"
+              . "「線の重なり順を直す.bat」を選んでください。`n"
               . "次からはボタンだけで最後まで進みます。")
         ok := WinWaitClose("ahk_id " dlg, , 120)
         ToolTip()
