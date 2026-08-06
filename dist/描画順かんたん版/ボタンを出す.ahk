@@ -17,6 +17,11 @@
 ;  ボタンは常に手前に出ます。ドラッグして好きな場所に置けます。
 ;  終了はボタンの右上の × です。
 ;
+;  Jw_cad の図面を複数開いている場合、外部変形の対象になるのは
+;  「最後に触っていた図面」です。対象の図面名は、ボタンのすぐ下に
+;  常に表示されます。対象を変えたいときは、目的の図面の画面を
+;  一度クリックしてから [線の重なり順] を押してください。
+;
 ;  隣の [?] は調べもの用です。うまく動かないときに押すと、
 ;  そのときの Jw_cad の中身をメモ帳に書き出します。
 ;
@@ -33,6 +38,9 @@ MF_BYPOSITION := 0x400
 ; メニューから探せなかったときだけ、この番号を使う。
 EXT_CMD := 32913
 
+; 最後に触っていた Jw_cad の図面ウィンドウ
+gLastJw := 0
+
 if !FileExist(BAT) {
     MsgBox("線の重なり順を直す.bat が見つかりません。`n`n"
          . "このファイルは 線の重なり順を直す.bat と同じフォルダに"
@@ -45,8 +53,48 @@ btn := Gui("+AlwaysOnTop +ToolWindow", "線順")
 btn.SetFont("s10")
 btn.AddButton("xm ym w110 h30", "線の重なり順").OnEvent("Click", Go)
 btn.AddButton("x+4 yp w28 h30", "?").OnEvent("Click", (*) => DumpJw())
+btn.SetFont("s8")
+gTargetLabel := btn.AddText("xm y+4 w142 h30", "対象 : Jw_cad の図面を`nクリックしてください")
 btn.OnEvent("Close", (*) => ExitApp())
 btn.Show("x" (A_ScreenWidth - 190) " y8 NoActivate")
+
+;--- 対象の図面を追いかける -----------------------------------
+;    Jw_cad の図面を複数開いていると、どれが対象なのかを
+;    決められない。そこで「最後に触っていた図面」を覚えておき、
+;    対象の図面名を画面に出し続ける。
+SetTimer(WatchJw, 200)
+
+WatchJw() {
+    global gLastJw, gTargetLabel
+
+    h := 0
+    try h := WinGetID("A")
+    catch
+        return
+    if !h
+        return
+
+    ; Jw_cad の図面ウィンドウ（メニューを持つ窓）だけを覚える
+    name := ""
+    try name := WinGetProcessName("ahk_id " h)
+    catch
+        return
+    if (name != "jw_win.exe")
+        return
+    if !DllCall("GetMenu", "ptr", h, "ptr")
+        return
+
+    if (h = gLastJw)
+        return
+    gLastJw := h
+
+    title := ""
+    try title := WinGetTitle("ahk_id " h)
+    catch
+        title := ""
+    title := StrReplace(title, " - jw_win", "")
+    gTargetLabel.Text := "対象 : " title
+}
 
 ;==============================================================
 ;  ボタンを押したときの動き（ここが全部）
@@ -57,7 +105,9 @@ Go(*) {
     hwnd := JwMain()
     if !hwnd {
         if WinExist("ahk_exe jw_win.exe")
-            Fail("Jw_cad の本体ウィンドウが見つかりませんでした。")
+            MsgBox("外部変形の対象になる図面が決まっていません。`n`n"
+                 . "目的の図面の画面を一度クリックしてから、`n"
+                 . "[線の重なり順] を押してください。", "線の重なり順", "Icon!")
         else
             MsgBox("Jw_cad が起動していません。", "線の重なり順", "Icon!")
         return
@@ -67,6 +117,17 @@ Go(*) {
     if !WinWaitActive("ahk_id " hwnd, , 3) {
         MsgBox("Jw_cad を前面にできませんでした。", "線の重なり順", "Icon!")
         return
+    }
+
+    ;--- ⓪ 前回の外部変形が残っていたら終わらせる --------------
+    ;    外部変形を実行し終えると、コントロールバーに
+    ;    [外部変形再選択] [再実行] [点指示終了] が出たまま残る。
+    ;    残ったままだと外部変形をもう一度起動できないので、
+    ;    先に [点指示終了] を押してコマンドから抜ける。
+    ctl := FindBarIn(hwnd, "点指示終了")
+    if (ctl != "") {
+        try ControlClick(ctl, "ahk_id " hwnd)
+        Sleep 250
     }
 
     ;--- ① 外部変形を起動 --------------------------------------
@@ -80,7 +141,7 @@ Go(*) {
     ;    Jw_cad の [ファイル選択] は Windows 標準の画面ではなく
     ;    Jw_cad 独自のもので、ファイル名を打ち込む欄が無い。
     ;    そこで、一覧の中から目的の行を選んで開く。
-    dlg := WaitDialog(hwnd, 5)
+    dlg := WaitDialog(5)
     if !dlg {
         Fail("ファイル選択の画面が出ませんでした。")
         return
@@ -93,10 +154,14 @@ Go(*) {
         ToolTip("最初の 1 回だけ、この画面で`n"
               . "「線の重なり順を直す.bat」を選んでください。`n"
               . "次からはボタンだけで最後まで進みます。")
-        ok := WinWaitClose("ahk_id " dlg, , 120)
+        ok := WinWaitClose("ahk_id " dlg, , 60)
         ToolTip()
-        if !ok
+        if !ok {
+            MsgBox("ファイル選択の画面が閉じないまま 60 秒たちました。`n`n"
+                 . "Jw_cad のファイル選択の画面を閉じてから、`n"
+                 . "[線の重なり順] を押し直してください。", "線の重なり順", "Icon!")
             return
+        }
     }
 
     ;--- ③ 表示部を全範囲選択 ----------------------------------
@@ -106,14 +171,17 @@ Go(*) {
     ;    コントロールバーは外部変形の起動が終わってから
     ;    作り直されるので、固定時間で待たずに
     ;    ボタンが出てくるまで待つ。
-    if !ClickBar("全選択", 5) {
+    ;
+    ;    図面を複数開いている場合に別の図面のボタンを押さないよう、
+    ;    探す範囲は対象の図面ウィンドウの中だけに限る。
+    if !ClickBarIn(hwnd, "全選択", 5) {
         Fail("[全選択] のボタンが出てきませんでした。")
         return
     }
 
     ;--- ④ 選択確定 --------------------------------------------
     ;    [選択確定] は範囲が決まってから出るので、これも待つ
-    if !ClickBar("選択確定", 5) {
+    if !ClickBarIn(hwnd, "選択確定", 5) {
         ; ボタンが押せなくても、Enter で確定できる
         WinActivate("ahk_id " hwnd)
         Send("{Enter}")
@@ -131,18 +199,33 @@ Fail(msg) {
 }
 
 ;==============================================================
-;  Jw_cad の本体ウィンドウを探す
+;  外部変形の対象にする図面ウィンドウを決める
+;
+;  Jw_cad は図面を 1 枚開くごとに独立した窓を作る。
+;  スタートアップで複数の jww を開いていると窓が何個も並ぶため、
+;  「見つかった順の 1 個目」では対象を決められない。
+;  WatchJw() が覚えた「最後に触っていた図面」を対象にする。
 ;
 ;  Jw_cad はツールバーなども独立した窓として持っているので、
-;  「jw_win.exe の窓」だけでは本体に当たらないことがある。
-;  メニューバーを持っている窓＝本体、として探す。
+;  メニューバーを持っている窓＝図面ウィンドウ、として区別する。
 ;==============================================================
 JwMain() {
+    global gLastJw
+
+    if (gLastJw && WinExist("ahk_id " gLastJw))
+        return gLastJw
+
+    ; まだ一度も Jw_cad を触っていない場合に限り、
+    ; 開いている図面が 1 枚だけならそれを対象にする。
+    found := 0
     for hwnd in WinGetList("ahk_exe jw_win.exe") {
-        if DllCall("GetMenu", "ptr", hwnd, "ptr")
-            return hwnd
+        if !DllCall("GetMenu", "ptr", hwnd, "ptr")
+            continue
+        if found
+            return 0        ; 2 枚以上あるので決められない
+        found := hwnd
     }
-    return 0
+    return found
 }
 
 ;--- メニュー項目の文字列（&（下線）を取り除いたもの）----------
@@ -190,15 +273,17 @@ FindExtCmd(hwnd) {
 ;  外部変形の [ファイル選択] が出るのを待つ
 ;
 ;  Jw_cad 独自の画面で、題名が「ファイル選択」。
-;  題名で当たらないときだけ、後から出てきた別ウィンドウを拾う。
+;  題名で当たらないときは、メニューを持たない表示中の窓を拾う。
+;  図面ウィンドウは必ずメニューを持つので、メニューの有無で
+;  図面ウィンドウとダイアログを区別できる。
 ;==============================================================
-WaitDialog(mainHwnd, sec) {
+WaitDialog(sec) {
     t := A_TickCount
     while (A_TickCount - t < sec * 1000) {
         cand := 0
         for h in WinGetList("ahk_exe jw_win.exe") {
-            if (h = mainHwnd)
-                continue
+            if DllCall("GetMenu", "ptr", h, "ptr")
+                continue                    ; 図面ウィンドウなので対象外
             if !DllCall("IsWindowVisible", "ptr", h)
                 continue
             if InStr(WinGetTitle("ahk_id " h), "ファイル選択")
@@ -283,42 +368,43 @@ PickBat(dlg, batPath) {
 }
 
 ;==============================================================
-;  コントロールバーのボタンを探す
+;  指定した図面ウィンドウの中から、コントロールバーのボタンを探す
 ;
 ;  Jw_cad のコントロールバーはコマンドごとに作り直されるので、
-;  ボタンの ClassNN は決め打ちできない。jw_win.exe の全ウィンドウ
-;  の中を見て、その文字を持つボタンを探す。
+;  ボタンの ClassNN は決め打ちできない。指定された図面ウィンドウ
+;  の中だけを見て、その文字を持つボタンを探す。
+;
+;  図面を複数開いていても別の図面のボタンを押さないよう、
+;  探す範囲を 1 つの図面ウィンドウに限っている。
 ;==============================================================
-FindBar(name) {
-    for hwnd in WinGetList("ahk_exe jw_win.exe") {
-        ctls := []
+FindBarIn(hwnd, name) {
+    ctls := []
+    try {
+        ctls := WinGetControls("ahk_id " hwnd)
+    } catch {
+        return ""
+    }
+    for ctl in ctls {
+        txt := ""
         try {
-            ctls := WinGetControls("ahk_id " hwnd)
+            txt := ControlGetText(ctl, "ahk_id " hwnd)
         } catch {
             continue
         }
-        for ctl in ctls {
-            txt := ""
-            try {
-                txt := ControlGetText(ctl, "ahk_id " hwnd)
-            } catch {
-                continue
-            }
-            if InStr(txt, name)
-                return { win: hwnd, ctl: ctl }
-        }
+        if InStr(txt, name)
+            return ctl
     }
-    return 0
+    return ""
 }
 
 ;--- ボタンが出てくるのを待って、押す -------------------------
 ;    押せなければ、その場所を実際にクリックする
-ClickBar(name, sec) {
-    t := A_TickCount
-    f := 0
+ClickBarIn(hwnd, name, sec) {
+    t   := A_TickCount
+    ctl := ""
     Loop {
-        f := FindBar(name)
-        if f
+        ctl := FindBarIn(hwnd, name)
+        if (ctl != "")
             break
         if (A_TickCount - t > sec * 1000)
             return false
@@ -326,15 +412,15 @@ ClickBar(name, sec) {
     }
 
     try {
-        ControlClick(f.ctl, "ahk_id " f.win)
+        ControlClick(ctl, "ahk_id " hwnd)
         return true
     } catch {
         ; コントロールとして押せなかった。実際にクリックする。
     }
     try {
-        WinActivate("ahk_id " f.win)
+        WinActivate("ahk_id " hwnd)
         CoordMode("Mouse", "Client")
-        ControlGetPos(&cx, &cy, &cw, &ch, f.ctl, "ahk_id " f.win)
+        ControlGetPos(&cx, &cy, &cw, &ch, ctl, "ahk_id " hwnd)
         Click((cx + cw // 2) " " (cy + ch // 2))
         return true
     } catch {
@@ -348,7 +434,14 @@ ClickBar(name, sec) {
 ;  うまく動かないときに、この内容を見れば原因がわかる。
 ;==============================================================
 DumpJw(*) {
-    out := "Jw_cad ウィンドウ一覧`r`n"
+    global gLastJw
+
+    tgt := JwMain()
+    out := "外部変形の対象にする図面 : "
+         . (tgt ? ("hwnd=" tgt "  " WinGetTitle("ahk_id " tgt))
+                : "決まっていません（図面を一度クリックしてください）")
+         . "`r`n`r`n"
+         . "Jw_cad ウィンドウ一覧`r`n"
          . "==============================`r`n"
 
     hits := WinGetList("ahk_exe jw_win.exe")
@@ -395,7 +488,17 @@ DumpJw(*) {
         }
     }
 
-    hwnd := JwMain()
+    ; メニュー番号はどの図面ウィンドウでも同じなので、
+    ; 対象が決まっていないときは最初の図面ウィンドウから書き出す。
+    hwnd := tgt
+    if !hwnd {
+        for h in hits {
+            if DllCall("GetMenu", "ptr", h, "ptr") {
+                hwnd := h
+                break
+            }
+        }
+    }
     if !hwnd {
         out .= "`r`nメニューを持つウィンドウがありません。`r`n"
     } else {
