@@ -94,7 +94,7 @@ Main
 ' メイン
 '==============================================================
 Sub Main()
-    Dim tempPath, lines, mode, keyKind, nums
+    Dim tempPath
 
     tempPath = FindTempFile()
     If tempPath = "" Then
@@ -103,6 +103,25 @@ Sub Main()
                "実行してください。", vbExclamation, APPTITLE
         WScript.Quit 1
     End If
+
+    ' 途中でエラーが起きた場合、jwc_temp.txt は書き換えられないので
+    ' Jw_cad 側は「未実行」と表示し、図面は変わらない。ただしそれだけ
+    ' では原因が分からないので、エラーの内容を知らせて、そのときの
+    ' 入力データを残す。
+    On Error Resume Next
+    RunAll tempPath
+    If Err.Number <> 0 Then
+        ReportError tempPath, Err.Number, Err.Description
+        WScript.Quit 1
+    End If
+    On Error GoTo 0
+End Sub
+
+'==============================================================
+' 本体の処理
+'==============================================================
+Sub RunAll(tempPath)
+    Dim lines, mode, keyKind, nums
 
     ' 調査用。Jw_cad が書き出した内容を、手を付ける前に保存する。
     DumpIfAsked tempPath, "jwc_temp_元.txt"
@@ -113,17 +132,17 @@ Sub Main()
 
     If gRecCount = 0 Then
         WriteAllText tempPath, "he 並べ替えるデータが選択されていません。" & vbCrLf
-        WScript.Quit 0
+        Exit Sub
     End If
 
     '--- 危ないデータが混ざっていないか確かめる ----------------
-    If Not ConfirmRisky() Then WScript.Quit 0
+    If Not ConfirmRisky() Then Exit Sub
 
     '--- 並べ替え方の決定 -------------------------------------
     If Not GetSettings(mode, keyKind, nums) Then
         ' 中止。jwc_temp.txt は書き換えないので Jw_cad 側は「未実行」となり
         ' 図面は一切変更されない。
-        WScript.Quit 0
+        Exit Sub
     End If
 
     '--- 並べ替え ---------------------------------------------
@@ -136,6 +155,37 @@ Sub Main()
     ' 調査用。書き戻した内容も保存する。
     DumpIfAsked tempPath, "jwc_temp_結果.txt"
 End Sub
+
+'==============================================================
+' エラーの報告
+'   jwc_temp.txt は書き換えていないので図面は変わらない。
+'   原因を追えるように、そのときの入力データを残す。
+'==============================================================
+Sub ReportError(tempPath, errNum, errDesc)
+    Dim dest, saved
+
+    dest = gFso.BuildPath(gScriptDir, "エラー時のjwc_temp.txt")
+    saved = False
+    On Error Resume Next
+    gFso.CopyFile tempPath, dest, True
+    If Err.Number = 0 Then saved = True
+    Err.Clear
+    On Error GoTo 0
+
+    MsgBox "描画順の処理でエラーが起きました。" & vbCrLf & _
+           "図面は変更していません。" & vbCrLf & vbCrLf & _
+           "エラー " & errNum & vbCrLf & _
+           errDesc & vbCrLf & vbCrLf & _
+           IIf(saved, _
+               "そのときの入力データを次の名前で保存しました。" & vbCrLf & dest, _
+               "入力データの保存はできませんでした。"), _
+           vbCritical, APPTITLE
+End Sub
+
+'--- 条件で文字列を選ぶ ---------------------------------------
+Function IIf(cond, a, b)
+    If cond Then IIf = a Else IIf = b
+End Function
 
 '==============================================================
 ' 調査用のコピーを作る（/dump が指定されたときだけ）
