@@ -1,0 +1,2 @@
+# Jw_cad が読む DAT は CP932 + CRLF のまま扱う（git に改行を変換させない）
+*.DAT -text
