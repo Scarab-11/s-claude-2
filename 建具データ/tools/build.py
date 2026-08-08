@@ -69,9 +69,10 @@ def main():
     # 400・450 も3桁なので桁揃えも崩れない。
     a, b = ent[11]
     base = lines[a:b + 1]
-    # 建具名に1つ、右端部線の行に2つ(始点X・終点X)、子扉の行に1つで計4つ
-    if sum(ln.count("300") for ln in base) != 4:
-        sys.exit("12番の '300' の出現数が想定(4)と違う")
+    # 建具名に1つ、右端部線の行に2つ(始点X・終点X)、子扉の2行に1つずつで計5つ
+    # (子扉は「線＋円弧を線色2」と「線だけ線色6」の2行で描いている)
+    if sum(ln.count("300") for ln in base) != 5:
+        sys.exit("12番の '300' の出現数が想定(5)と違う")
     added = []
     for w in WIDTHS:
         added += ["#"] + [ln.replace("300", str(w)) for ln in base]
