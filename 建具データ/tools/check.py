@@ -40,8 +40,12 @@ def load(path):
     return raw, text.split("\r\n")
 
 
-def entries(lines):
-    """(開始行, 終端行, 分割数, 建具名) を先頭から順に返す。"""
+def entries(lines, limit=None):
+    """(開始行, 終端行, 分割数, 建具名) を先頭から順に返す。
+
+    limit を渡すとその件数で読み取りを止める。JW_OPT1.DAT のように
+    最後の建具より後ろに書式説明が付いているファイルに対応するため。
+    """
     out, start = [], None
     for i, line in enumerate(lines[5:], start=5):
         s = line.strip()
@@ -55,6 +59,8 @@ def entries(lines):
         if TERM.match(line):
             out.append((start, i, div, name))
             start = None
+            if limit is not None and len(out) >= limit:
+                break
     if start is not None:
         sys.exit("%d 行目の建具に終端(999/995/991)がない" % (start + 1))
     return out
@@ -64,9 +70,9 @@ def main():
     path = sys.argv[1] if len(sys.argv) > 1 else "JW_OPT1B.DAT"
     show_lines = "--lines" in sys.argv
     raw, lines = load(path)
-    ent = entries(lines)
-
     declared = lines[2].strip()
+    ent = entries(lines, int(declared) if declared.isdigit() else None)
+
     print("%s  %d バイト / CRLF %d 行" % (path, len(raw), raw.count(b"\r\n")))
     print("見出し: %s" % lines[0])
     print("登録件数: %s / 実際の件数: %d %s"
