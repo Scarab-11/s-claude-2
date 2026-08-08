@@ -86,8 +86,12 @@ def main():
         attrs = sorted({s for s in seen if s})
         if any(s is None for s in seen):
             attrs.append("属性欄なし")
-        print("%2d  分割%-2s %-28s %2d行  属性: %s"
-              % (n, div, name, len(data), " / ".join(attrs) or "なし"))
+        # 終端の後ろに数値が付いていると見込・枠幅がその寸法に固定される。
+        # 差し替えのときに前の建具の終端を残すと気づきにくいので必ず出す。
+        term = lines[b].split()
+        fix = "  ★見込%s・枠幅%s固定" % (term[1], term[2]) if len(term) >= 3 else ""
+        print("%2d  分割%-2s %-28s %2d行  終端%-4s  属性: %s%s"
+              % (n, div, name, len(data), term[0], " / ".join(attrs) or "なし", fix))
         if show_lines:
             for ln in lines[a + 1:b + 1]:
                 print("      " + ln)
