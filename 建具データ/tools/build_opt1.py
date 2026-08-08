@@ -21,14 +21,19 @@ DROP = (13, 14)                      # 扉厚付きの折戸
 END, MOVE, FRAME = "0 0 -11", "6 0 -1", "2 0 -1"
 
 # 建具ごと: ends=端部線, move=動く部分, arcs=円弧付き, keep=そのまま,
-#           center=('extend',行) or ('add',) or None, to3=分割2→3
+#           drop=削る行, extra=足す行, center=('extend',行) or ('add',) or None,
+#           to3=分割2→3
+# [5][6] は両端の枠(線色2)を消し、代わりに開口いっぱいの見込線を足す。
+#   端部線(選択色)と合わせて開口が矩形になる。
 T = {
  1: dict(move={0,1,2}, keep={3,4,5,6}, center=('extend',1)),
  2: dict(move={0,1,2,3,4}),
  3: dict(ends={2,6}, center=('add',), to3=True),
  4: dict(ends={2,8}, move={3,4,5}, center=('extend',4)),
- 5: dict(ends={2,10}, move={3,4,5,6,7}),
- 6: dict(ends={2,12}, move={3,4,5,6,7,8,9}, center=('extend',6)),
+ 5: dict(ends={2,10}, move={3,4,5,6,7}, drop={0,1,8,9},
+         extra=[(['1','4','0','0','0','0'], FRAME), (['1','4','0','70','0','70'], FRAME)]),
+ 6: dict(ends={2,12}, move={3,4,5,6,7,8,9}, center=('extend',6), drop={0,1,10,11},
+         extra=[(['1','5','0','0','0','0'], FRAME), (['1','5','0','70','0','70'], FRAME)]),
  7: dict(arcs={14}, center=('add',), to3=True),
  8: dict(ends={3,6}, arcs={10}, center=('add',), to3=True),
  9: dict(move={5}, center=('add',), to3=True),
@@ -80,6 +85,7 @@ def main():
         t = T[k]
         ends, move = t.get("ends", set()), t.get("move", set())
         arcs, keep = t.get("arcs", set()), t.get("keep", set())
+        drop, extra = t.get("drop", set()), t.get("extra", [])
         center, catt = t.get("center"), t.get("catt", "-11")
         if t.get("to3"):
             n = 3
@@ -90,6 +96,7 @@ def main():
 
         lines = []
         for idx, s in enumerate(body):
+            if idx in drop: continue
             if idx in keep: lines.append(s); continue
             tk = s.split()
             ei = next((q for q, v in enumerate(tk) if v.lower() == "e"), len(tk))
@@ -103,6 +110,8 @@ def main():
                 lines.append(fmt(co, "6 0 -11", "  e %8s  16" % ang))
                 continue
             attr = END if idx in ends else MOVE if idx in move else FRAME
+            lines.append(fmt(co, attr))
+        for co, attr in extra:
             lines.append(fmt(co, attr))
         if center and center[0] == "add":
             lines.append(fmt([cblk, cblk, "0", "-50", "0", "120"], "6 1 " + catt))
