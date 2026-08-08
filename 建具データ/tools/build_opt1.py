@@ -6,7 +6,8 @@ JW_OPT1B.DAT と同じ仕様を当てる:
   枠・躯体・見込線 → 線色2
   扉・障子・戸     → 線色6
   扉の円弧        → 線色2(コード10 = 円弧のみ)、扉の線 → 線色6(コード16 = 線のみ)
-  中心線          → Y −50〜120・線色6・実線
+  中心線          → Y −50〜120・線色6・実線・建具属性あり
+                     (-11 にすると閉じた領域を横切る部分が中間線消去で切られる)
 元データの [13][14](扉厚付き折戸)は削除する。
 """
 import re, sys
@@ -37,11 +38,11 @@ T = {
  7: dict(arcs={14}, center=('add',), to3=True),
  8: dict(ends={3,6}, arcs={10}, center=('add',), to3=True),
  9: dict(move={5}, center=('add',), to3=True),
-10: dict(move={5}, center=('add',), to3=True, catt="-1"),
+10: dict(move={5}, center=('add',), to3=True),
 11: dict(move={3,4,5,6,7,8,9,10,11,12,13,17,18,19}, center=('extend',12)),
-12: dict(move={3,4,5,6,7,8,9,10,11,12,13,17,18,19}, center=('extend',12), catt="-1"),
-15: dict(move={0,1,2,3,4,5,6}, center=('extend',2), catt="-1"),
-16: dict(ends={3,9}, move={4,5,6,7,8}, center=('extend',5), catt="-1"),
+12: dict(move={3,4,5,6,7,8,9,10,11,12,13,17,18,19}, center=('extend',12)),
+15: dict(move={0,1,2,3,4,5,6}, center=('extend',2)),
+16: dict(ends={3,9}, move={4,5,6,7,8}, center=('extend',5)),
 17: dict(ends={1,9}, move={3,4,5,6,11,12,13,14}, center=('add',), to3=True),
 18: dict(ends={1,15}, move={3,4,5,6,8,9,10,11,12,17,18,19,20}, center=('extend',8)),
 19: dict(ends={0,3}, arcs={4}, center=('add',), to3=True),
@@ -86,7 +87,7 @@ def main():
         ends, move = t.get("ends", set()), t.get("move", set())
         arcs, keep = t.get("arcs", set()), t.get("keep", set())
         drop, extra = t.get("drop", set()), t.get("extra", [])
-        center, catt = t.get("center"), t.get("catt", "-11")
+        center, catt = t.get("center"), "-1"   # 中心線は建具属性あり
         if t.get("to3"):
             n = 3
             body = [re.sub(r'^(\S+)\s+(\S+)', lambda m: "%s %s" % (
