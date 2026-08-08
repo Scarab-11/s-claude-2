@@ -5,10 +5,11 @@
 
 やることは2つだけ。
 
-1. 扉厚まで描く詳細版の折戸(元の15・16番)を取り除く
-   折戸の軸を壁中心に合わせる Y+35 の移動と両立しない(理由は README.md 参照)。
-   1/100 では扉厚を描く必要がないため配布版からは外している。
-   復元したくなったら JW_OPT1B_扉厚折戸入り.DAT の方を使う。
+1. 配布しない折戸を取り除く
+   ・折戸(開き60度)……建具用包絡をかけると内側の羽根が延長されて壊れる
+   ・扉厚まで描く詳細版の折戸2件……折戸の軸を壁中心に合わせる Y+35 と両立しない
+   いずれも理由は README.md 参照。復元したくなったら
+   JW_OPT1B_扉厚折戸入り.DAT の方を使う。
 
 2. 親子ドアー(12番)を複製して子扉400・450を末尾に足す
    子扉寸法は座標に直接書かれた固定値なので、寸法違いは建具を分けるしかない。
@@ -26,7 +27,10 @@ HERE = Path(__file__).resolve().parent.parent
 SRC = HERE / "JW_OPT1B_扉厚折戸入り.DAT"
 DST = HERE / "JW_OPT1B.DAT"
 
-DROP = ("折戸（開き60度）", "折戸（開き75度）")   # 末尾2件のみが対象
+# 配布版から外す建具。元ファイル上の位置(0始まり)と建具名で二重に確かめる。
+DROP = {12: "折戸（開き60度）",          # 包絡で壊れる
+        14: "折戸（開き60度）",          # 扉厚を描く詳細版
+        15: "折戸（開き75度）"}          # 扉厚を描く詳細版
 BASE = "親子ドアー（子扉300）"                   # 複製元
 WIDTHS = (400, 450)                             # 追加する子扉寸法
 
@@ -58,9 +62,9 @@ def main():
         sys.exit("扉厚折戸入りのはずが %d 件だった" % len(ent))
 
     names = [HEAD.match(lines[a]).group(2).strip() for a, _ in ent]
-    for name in names[14:]:
-        if name not in DROP:
-            sys.exit("15・16番が想定と違う: %s" % name)
+    for k, want in DROP.items():
+        if names[k] != want:
+            sys.exit("%d番が %s ではない: %s" % (k + 1, want, names[k]))
     if names[11] != BASE:
         sys.exit("12番が %s ではない: %s" % (BASE, names[11]))
 
@@ -77,11 +81,13 @@ def main():
     for w in WIDTHS:
         added += ["#"] + [ln.replace("300", str(w)) for ln in base]
 
-    # 15番の直前の '#' から 16番の終端までを削る
-    cut = ent[14][0]
-    while lines[cut - 1].strip() == "#":
-        cut -= 1
-    del lines[cut:ent[15][1] + 1]
+    # 外す建具を後ろから削る(前から削ると以降の行番号がずれる)。
+    # 直前の '#' も一緒に落とす。
+    for k in sorted(DROP, reverse=True):
+        cut = ent[k][0]
+        while lines[cut - 1].strip() == "#":
+            cut -= 1
+        del lines[cut:ent[k][1] + 1]
 
     # 末尾(最後の 999 の直後)に追加分を差し込む
     tail = len(lines) - 1
@@ -91,7 +97,7 @@ def main():
 
     # 見出しの登録件数を実際の件数に合わせる(数が違うと Jw_cad の表示が崩れる)
     count = len(entries(lines))
-    if count != 14 + len(WIDTHS):
+    if count != 16 - len(DROP) + len(WIDTHS):
         sys.exit("組み立て後の件数が想定と違う: %d 件" % count)
     lines[2] = str(count)
 
