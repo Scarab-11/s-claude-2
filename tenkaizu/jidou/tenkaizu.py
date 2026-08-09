@@ -35,6 +35,7 @@ def write_log():
 CFG = {
     '壁芯線レイヤ':'f', '室名レイヤ':'c', '天井高レイヤ':'e', '通り芯レイヤ':'1',
     '天井高の接頭辞':'ch=',
+    '室名から除外':'ｶｳﾝﾀｰ,カウンター',
     '作図レイヤグループ':'1',
     '壁の寄り':'80',
     '文字高_寸法':'2.0', '文字高_室名':'2.5', '文字高_通り芯記号':'3.5',
@@ -119,6 +120,14 @@ def read_temp(path):
     return lines, texts, raws
 def txt_center(t):
     return (t['x'] + t['dx']/2, t['y'] + t['dy']/2)
+
+_AREA = re.compile(r'^[（(].*[）)]$')
+def is_roomname(s):
+    """室名として使える文字か。面積表記「(7.85㎡)」や除外語をはじく"""
+    s = s.strip()
+    if not s or _AREA.match(s): return False
+    ng = [w.strip() for w in CFG['室名から除外'].split(',') if w.strip()]
+    return s not in ng
 
 # ============================================================
 # 壁芯線 → 閉領域（室）
@@ -387,13 +396,16 @@ def main():
     lyN = CFG['室名レイヤ'].lower()
     lyH = CFG['天井高レイヤ'].lower()
     walls = [l for l in lines if l['ly'] == lyW]
-    names = [t for t in texts if t['ly'] == lyN]
+    names = [t for t in texts if t['ly'] == lyN and is_roomname(t['s'])]
+    dropped = [t['s'] for t in texts if t['ly'] == lyN and not is_roomname(t['s'])]
     chs   = [t for t in texts if t['ly'] == lyH]
     log('')
     log('---- 抽出 ----')
     log('  壁芯線(レイヤ%s) : %d本' % (CFG['壁芯線レイヤ'], len(walls)))
     log('  室名  (レイヤ%s) : %d個  %s' % (CFG['室名レイヤ'], len(names),
         ' / '.join(t['s'] for t in names[:20])))
+    if dropped:
+        log('    （除外した文字: %s）' % ' / '.join(dropped[:20]))
     log('  天井高(レイヤ%s) : %d個  %s' % (CFG['天井高レイヤ'], len(chs),
         ' / '.join(t['s'] for t in chs[:20])))
     msg = []
