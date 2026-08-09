@@ -6,6 +6,10 @@ Jw_cad へは外部変形（gaibu/）で作図させ、.jww で保存する。
 
 文字は文字種(cn1..cn10)ではなく任意サイズ文字(cn0 幅 高さ 間隔 色)で出す。
 文字種の寸法は環境ごとの設定に依存するため。
+
+単位に注意:
+  座標・文字列の長さベクトル … 実寸 mm（1/100 なら用紙 mm × 100）
+  cn0 の幅・高さ・間隔        … 用紙 mm（縮尺をかけない）
 """
 import unicodedata, os
 
@@ -160,9 +164,9 @@ def elements(dx=0.0, dy=0.0):
             else:
                 if e[2]!=size:
                     size=e[2]
-                    h=theight(size)
                     # cn0 幅 高さ 間隔 色（任意サイズ文字）
-                    o.append('cn0 %s %s 0 %d'%(fm(h),fm(h),LC[ly]))
+                    # 文字サイズは「用紙 mm」。座標と長さベクトルは実寸 mm。
+                    o.append('cn0 %s %s 0 %d'%(fm(size),fm(size),LC[ly]))
                 # ch 始点X 始点Y 長さX 長さY "文字列
                 o.append('ch %s %s %s %s "%s'%(fm(e[3]+dx),fm(e[4]+dy),
                                                fm(e[5]),fm(e[6]),e[7]))
