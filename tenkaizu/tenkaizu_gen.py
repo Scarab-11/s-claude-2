@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""展開図ジェネレータ  平面図(通り芯)→ 展開図 A/B/C/D  → JWC / DXF / 外部変形 / プレビュー"""
+"""展開図ジェネレータ  平面図(通り芯)→ 展開図 A/B/C/D  → 外部変形データ / DXF / プレビュー
+
+.jwc はバイナリ形式（DOS版 Jw_cad 由来）のため出力しない。
+Jw_cad へは外部変形（gaibu/）で作図させ、.jww で保存する。"""
 import unicodedata, os
 
 SCALE = 100                              # 1/100
@@ -155,14 +158,7 @@ def elements(dx=0.0, dy=0.0):
 
 HEAD = ['# 展開図  洋室-1 / 事務室   A3  S=1/100',
         '# レイヤ1:基準線  レイヤ2:寸法線  レイヤ3:枠線  レイヤ4:文字']
-def jwc():   return '\r\n'.join(['hs %d'%SCALE]+elements())+'\r\n'
-def jwc_b():
-    hdr=['hq','hv 0',
-         'hcw 2 2.5 3 4 5 6 7 8 9 10',
-         'hch 2 2.5 3 4 5 6 7 8 9 10',
-         'hcd 0 0 0.5 0.5 0.5 1 1 1 1 1',
-         'hs %d'%SCALE,'#']
-    return '\r\n'.join(hdr+elements())+'\r\n'
+
 def gaibu(): return '\r\n'.join(HEAD+elements(-BX0, -BY0))+'\r\n'   # 左下を原点に
 
 def dxf():
@@ -197,11 +193,9 @@ def dxf():
 
 D=os.path.dirname(os.path.abspath(__file__))+'/out/'
 os.makedirs(D, exist_ok=True)
-open(D+'tenkaizu.jwc','w',encoding='cp932',newline='').write(jwc())
-open(D+'tenkaizu_b.jwc','w',encoding='cp932',newline='').write(jwc_b())
 open(D+'tenkaizu.dxf','w',encoding='cp932',newline='').write(dxf())
 open(D+'tenkaizu_data.txt','w',encoding='cp932',newline='').write(gaibu())
-for f in ('tenkaizu.jwc','tenkaizu_b.jwc','tenkaizu.dxf','tenkaizu_data.txt'):
+for f in ('tenkaizu.dxf','tenkaizu_data.txt'):
     print('  %-20s %6d bytes' % (f, os.path.getsize(D+f)))
 
 # ============ プレビュー ============
