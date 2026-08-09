@@ -17,6 +17,18 @@ import sys, os, re, math, unicodedata
 EPS = 1.0
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+# ---- 動作の記録（必ず tenkaizu_log.txt に残す）----------------
+LOG = []
+def log(*a):
+    LOG.append(' '.join(str(x) for x in a))
+def write_log():
+    try:
+        with open(os.path.join(HERE, 'tenkaizu_log.txt'), 'w',
+                  encoding='cp932', errors='replace', newline='') as f:
+            f.write('\r\n'.join(LOG) + '\r\n')
+    except Exception:
+        pass
+
 # ============================================================
 # 設定
 # ============================================================
@@ -344,12 +356,32 @@ def emit(dx=0.0, dy=0.0):
 # 本体
 # ============================================================
 def main():
+    import datetime
+    log('展開図 自動作図  %s' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    log('Python %s' % sys.version.split()[0])
+    log('スクリプト位置 : %s' % HERE)
+    log('カレントフォルダ: %s' % os.getcwd())
     temp = None
     for c in (os.path.join(os.getcwd(),'jwc_temp.txt'), os.path.join(HERE,'jwc_temp.txt')):
-        if os.path.exists(c): temp = c; break
+        log('  探索 : %s  → %s' % (c, '有' if os.path.exists(c) else '無'))
+        if os.path.exists(c) and temp is None: temp = c
     if temp is None:
-        sys.stderr.write('jwc_temp.txt が見つかりません。\n'); return 1
+        log('!! jwc_temp.txt が見つかりません。')
+        sys.stderr.write('jwc_temp.txt が見つかりません。\n'); write_log(); return 1
+    log('使用する座標ファイル: %s' % temp)
     lines, texts, raws = read_temp(temp)
+    log('')
+    log('---- 受け取ったデータ ----')
+    log('  線 %d本 / 文字 %d個' % (len(lines), len(texts)))
+    from collections import Counter
+    cl = Counter(l['ly'] for l in lines); ct = Counter(t['ly'] for t in texts)
+    for k in sorted(set(cl) | set(ct), key=lambda v: (v is None, str(v))):
+        log('    レイヤ%-3s 線%4d本  文字%3d個' % (k, cl.get(k,0), ct.get(k,0)))
+    log('')
+    log('---- 設定 ----')
+    for k in ('壁芯線レイヤ','室名レイヤ','天井高レイヤ','通り芯レイヤ',
+              '天井高の接頭辞','作図レイヤグループ'):
+        log('  %s = %s' % (k, CFG[k]))
 
     lyW = CFG['壁芯線レイヤ'].lower()
     lyN = CFG['室名レイヤ'].lower()
@@ -357,16 +389,31 @@ def main():
     walls = [l for l in lines if l['ly'] == lyW]
     names = [t for t in texts if t['ly'] == lyN]
     chs   = [t for t in texts if t['ly'] == lyH]
+    log('')
+    log('---- 抽出 ----')
+    log('  壁芯線(レイヤ%s) : %d本' % (CFG['壁芯線レイヤ'], len(walls)))
+    log('  室名  (レイヤ%s) : %d個  %s' % (CFG['室名レイヤ'], len(names),
+        ' / '.join(t['s'] for t in names[:20])))
+    log('  天井高(レイヤ%s) : %d個  %s' % (CFG['天井高レイヤ'], len(chs),
+        ' / '.join(t['s'] for t in chs[:20])))
     msg = []
     if not walls:
         msg.append('壁芯線レイヤ「%s」に線がありません。' % CFG['壁芯線レイヤ'])
+    if not names:
+        msg.append('室名レイヤ「%s」に文字がありません。' % CFG['室名レイヤ'])
     if not chs:
         msg.append('天井高レイヤ「%s」に文字がありません。' % CFG['天井高レイヤ'])
     if msg:
+        for m in msg: log('!! ' + m)
+        log('!! レイヤの指定は tenkaizu_setting.txt で変更できます。')
+        log('!! 上の「受け取ったデータ」の一覧で、実際のレイヤ番号を確認してください。')
         sys.stderr.write('\n'.join(msg) + '\n設定は tenkaizu_setting.txt で変更できます。\n')
-        return 1
+        write_log(); return 1
 
     polys, area = detect_rooms(walls)
+    log('')
+    log('---- 室の検出 ----')
+    log('  閉領域 %d個' % len(polys))
     xn, yn = axis_names(lines, texts)
     pre = CFG['天井高の接頭辞']
 
@@ -381,9 +428,16 @@ def main():
         if not h: continue
         rooms.append((nm[0]['s'].strip(), float(h), poly))
 
+    for poly in polys:
+        n2 = [t['s'] for t in names if inside(txt_center(t), poly)]
+        c2 = [t['s'] for t in chs   if inside(txt_center(t), poly)]
+        log('    %8.2f㎡  室名:%-14s 天井高:%-10s %s'
+            % (area(poly)/1e6, '/'.join(n2) or '(なし)', '/'.join(c2) or '(なし)',
+               '→作図' if (n2 and c2) else '→対象外'))
     if not rooms:
+        log('!! 室名と天井高が揃った室が見つかりませんでした。')
         sys.stderr.write('室名と天井高が揃った室が見つかりませんでした。\n')
-        return 1
+        write_log(); return 1
 
     # ---- 面の組み立て ----
     plan = []                      # (室名, 天井高, 面記号, 芯々幅, 基準線, 段差, 内訳)
@@ -446,12 +500,26 @@ def main():
             break
 
     out = emit(ox - bx0, oy - by0)
-    with open(temp, 'w', encoding='cp932', newline='') as f:
+    with open(temp, 'w', encoding='cp932', errors='replace', newline='') as f:
         f.write('\r\n'.join(out) + '\r\n')
-    sys.stderr.write('%d室 %d面を作図しました（%s）\n'
-                     % (len({r[0] for r in rooms}), len(plan),
-                        '／'.join('%s(CH=%d)' % (n, h) for n, h, _ in rooms)))
+    log('')
+    log('---- 作図 ----')
+    log('  配置基準点 : %.1f, %.1f' % (ox, oy))
+    log('  全体寸法   : %.0f x %.0f mm（用紙上）'
+        % ((max(xs)-min(xs))/SCALE, (max(ys)-min(ys))/SCALE))
+    log('  出力 %d行 を %s に書き出しました' % (len(out), temp))
+    log('  %d室 %d面' % (len({r[0] for r in rooms}), len(plan)))
+    for n, h, _ in rooms: log('    %s  CH=%d' % (n, h))
+    write_log()
+    sys.stderr.write('%d室 %d面を作図しました\n' % (len({r[0] for r in rooms}), len(plan)))
     return 0
 
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception:
+        import traceback
+        log(''); log('!! 予期しないエラー'); log(traceback.format_exc())
+        write_log()
+        sys.stderr.write(traceback.format_exc())
+        sys.exit(1)
