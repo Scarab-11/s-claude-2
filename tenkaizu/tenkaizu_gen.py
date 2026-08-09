@@ -32,7 +32,8 @@ C_AXIS   = 1    # 基準線
 C_MARK   = 4    # 通り芯記号（円・十字）
 C_DIM    = 2    # 寸法線・寸法補助線・寸法値
 C_POINT  = 6    # 寸法端部の実点
-C_FRAME  = 5    # 部屋の外形線・段差線
+C_FRAME  = 5    # 部屋の外形線
+C_STEP   = 1    # 室内の段差線（レイヤ5）
 C_BOX    = 2    # 面記号の囲み枠
 C_TEXT   = 1    # 室名・面記号・通り芯記号の文字
 
@@ -71,8 +72,9 @@ def draw_face(ox, oy, L, H, room, face, axis, steps, chain):
     # --- レイヤ3 枠線（部屋の外形線）---
     line(3,C_FRAME,LT_SOLID, fl,oy,   fr,oy  ); line(3,C_FRAME,LT_SOLID, fr,oy,   fr,oy+H)
     line(3,C_FRAME,LT_SOLID, fr,oy+H, fl,oy+H); line(3,C_FRAME,LT_SOLID, fl,oy+H, fl,oy  )
+    # --- レイヤ5 室内の段差線（壁面が切り替わる位置）---
     for s in steps:
-        line(3,C_FRAME,LT_SOLID, ox+s,oy, ox+s,oy+H)
+        line(5,C_STEP,LT_SOLID, ox+s,oy, ox+s,oy+H)
 
     # --- レイヤ1 基準線＋通り芯記号 ---
     for pos, mk in axis:
@@ -189,7 +191,7 @@ assert min(xs)>-HALF_W and max(xs)<HALF_W and min(ys)>-HALF_H and max(ys)<HALF_H
 def fm(v): return ('%.2f'%v).rstrip('0').rstrip('.')
 def elements(dx=0.0, dy=0.0, skip=()):
     o=[]
-    for ly in (1,2,3,4):
+    for ly in (1,2,3,4,5):
         es=[e for e in P if e[1]==ly]
         if not es or ly in skip: continue
         o.append('ly%d'%ly)
@@ -237,8 +239,8 @@ def dxf():
     a(0,'LTYPE'); a(2,'DASHDOT'); a(70,0); a(3,'Dash dot'); a(72,65); a(73,4); a(40,600.0)
     a(49,400.0); a(49,-100.0); a(49,0.0); a(49,-100.0)
     a(0,'ENDTAB')
-    a(0,'TABLE'); a(2,'LAYER'); a(70,4)
-    for ly,col in ((1,C_AXIS),(2,C_DIM),(3,C_FRAME),(4,C_TEXT)):
+    a(0,'TABLE'); a(2,'LAYER'); a(70,5)
+    for ly,col in ((1,C_AXIS),(2,C_DIM),(3,C_FRAME),(4,C_TEXT),(5,C_STEP)):
         a(0,'LAYER'); a(2,str(ly)); a(70,0); a(62,col); a(6,'CONTINUOUS')
     a(0,'ENDTAB')
     a(0,'TABLE'); a(2,'STYLE'); a(70,1)
