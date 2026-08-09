@@ -49,7 +49,8 @@ Dim out : out = ""
 lines = ReadAllLines(dataPath)
 For i = 0 To UBound(lines)
     t = Trim(lines(i))
-    If t <> "" And Left(t, 1) <> "#" Then
+    ' 「#」は寸法図形の区切りとして意味を持つので捨てない
+    If t <> "" Then
         out = out & Shift(t, ox, oy) & vbCrLf
     End If
 Next
@@ -58,14 +59,23 @@ WScript.Quit 0
 
 '==============================================================
 ' 1 行を平行移動する
-'   「ci x y r」「ch 始点X 始点Y 長さX 長さY "文字列」「x1 y1 x2 y2」が対象。
+'   「x1 y1 x2 y2」（線）「ci x y r」（円）「pt x y」（実点）
+'   「ch / cs 始点X 始点Y 長さX 長さY "文字列」（文字・寸法値）が対象。
 '   ch の第3・4は文字列の長さベクトルなので、始点だけを移動する。
-'   属性行（ly / lc / lt / cn …）はそのまま返す。
+'   属性行（ly / lc / lt / cn / pn）と msg・# はそのまま返す。
 '==============================================================
 Function Shift(ByVal t, ByVal ox, ByVal oy)
     Dim toks, n, i
 
-    If Left(t, 3) = "ci " Then
+    If Left(t, 3) = "pt " Then
+        toks = Tokenize(Mid(t, 4))
+        If UBound(toks) >= 1 Then
+            Shift = "pt " & FmtNum(ParseNum(toks(0)) + ox) & " " & _
+                            FmtNum(ParseNum(toks(1)) + oy)
+            Exit Function
+        End If
+
+    ElseIf Left(t, 3) = "ci " Then
         toks = Tokenize(Mid(t, 4))
         If UBound(toks) >= 2 Then
             Shift = "ci " & FmtNum(ParseNum(toks(0)) + ox) & " " & _
@@ -73,7 +83,7 @@ Function Shift(ByVal t, ByVal ox, ByVal oy)
             Exit Function
         End If
 
-    ElseIf Left(t, 3) = "ch " Then
+    ElseIf Left(t, 3) = "ch " Or Left(t, 3) = "cs " Then
         Dim body, nums(3), st, cnt, c, rest
         body = Mid(t, 4) : cnt = 0 : i = 1 : rest = ""
         Do While i <= Len(body) And cnt < 4
@@ -95,7 +105,7 @@ Function Shift(ByVal t, ByVal ox, ByVal oy)
         If cnt = 4 Then
             rest = LTrim(Mid(body, i))
             ' 第3・4フィールドは文字列の長さベクトルなので平行移動しない
-            Shift = "ch " & FmtNum(nums(0) + ox) & " " & FmtNum(nums(1) + oy) & " " & _
+            Shift = Left(t, 3) & FmtNum(nums(0) + ox) & " " & FmtNum(nums(1) + oy) & " " & _
                             FmtNum(nums(2)) & " " & FmtNum(nums(3)) & " " & rest
             Exit Function
         End If

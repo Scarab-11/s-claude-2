@@ -45,9 +45,14 @@ def tlen(s, mm):
     return n * mm * SCALE
 def theight(mm): return mm * SCALE
 
-P = []   # ('line',ly,lt,x1,y1,x2,y2) ('circle',ly,lt,x,y,r) ('text',ly,mm,x1,y1,dx,dy,s)
+# ('line',ly,lt,x1,y1,x2,y2) ('circle',ly,lt,x,y,r) ('text',ly,mm,x1,y1,dx,dy,s)
+# ('point',ly,x,y)  ('dimfig',ly,mm,x1,y1,x2,y2,tx,ty,tdx,tdy,s)
+P = []
 def line(ly,lt,x1,y1,x2,y2): P.append(('line',ly,lt,x1,y1,x2,y2))
 def circle(ly,lt,x,y,r):     P.append(('circle',ly,lt,x,y,r))
+def point(ly,x,y):           P.append(('point',ly,x,y))
+def dimfig(ly,mm,x1,y1,x2,y2,tx,ty,tdx,tdy,s):
+    P.append(('dimfig',ly,mm,x1,y1,x2,y2,tx,ty,tdx,tdy,s))
 def text_h(ly,mm,cx,by,s):
     L=tlen(s,mm); P.append(('text',ly,mm,cx-L/2,by,L,0,s))
 def text_v(ly,mm,bx,cy,s):
@@ -79,9 +84,9 @@ def draw_face(ox, oy, L, H, room, face, axis, steps, chain):
 
     # --- レイヤ2 幅寸法（すべて芯々・基準線間）---
     def hdim(y, x1, x2, val):
-        line(2,LT_SOLID, x1,y, x2,y)
-        circle(2,LT_SOLID, x1,y, DOT_R); circle(2,LT_SOLID, x2,y, DOT_R)
-        text_h(2,TXT_DIM, (x1+x2)/2, y+DIM_TXT_GAP, '{:,}'.format(int(round(val))))
+        point(2, x1,y); point(2, x2,y)
+        t='{:,}'.format(int(round(val))); L=tlen(t,TXT_DIM)
+        dimfig(2,TXT_DIM, x1,y, x2,y, (x1+x2)/2-L/2, y+DIM_TXT_GAP, L,0, t)
     y_in = oy+H+DIM_OFF
     if chain:
         a = 0
@@ -93,10 +98,10 @@ def draw_face(ox, oy, L, H, room, face, axis, steps, chain):
 
     # --- レイヤ2 高さ寸法（天井高）---
     xd = ox-VDIM_OFF
-    line(2,LT_SOLID, xd,oy, xd,oy+H)
-    circle(2,LT_SOLID, xd,oy, DOT_R); circle(2,LT_SOLID, xd,oy+H, DOT_R)
     line(2,LT_SOLID, xd,oy, xd+VDIM_EXT,oy); line(2,LT_SOLID, xd,oy+H, xd+VDIM_EXT,oy+H)
-    text_v(2,TXT_DIM, xd-DIM_TXT_GAP, oy+H/2, '{:,}'.format(int(round(H))))
+    point(2, xd,oy); point(2, xd,oy+H)
+    t='{:,}'.format(int(round(H))); L=tlen(t,TXT_DIM)
+    dimfig(2,TXT_DIM, xd,oy, xd,oy+H, xd-DIM_TXT_GAP, oy+H/2-L/2, 0,L, t)
 
     # --- レイヤ4 室名 ---
     text_h(4,TXT_NAME, ox+L/2, oy+H/2-theight(TXT_NAME)/2, room)
@@ -144,6 +149,9 @@ xs=[];ys=[]
 for e in P:
     if e[0]=='line': xs+=[e[3],e[5]]; ys+=[e[4],e[6]]
     elif e[0]=='circle': xs+=[e[3]-e[5],e[3]+e[5]]; ys+=[e[4]-e[5],e[4]+e[5]]
+    elif e[0]=='point': xs+=[e[2]]; ys+=[e[3]]
+    elif e[0]=='dimfig':
+        xs+=[e[3],e[5],e[7],e[7]+e[9]]; ys+=[e[4],e[6],e[8],e[8]+e[10]+theight(e[2])]
     else: xs+=[e[3],e[3]+e[5]]; ys+=[e[4],e[4]+e[6]+theight(e[2])]
 BX0,BY0 = min(xs), min(ys)
 print('要素数 %d   X %.0f..%.0f (用紙 ±%.0f)   Y %.0f..%.0f (用紙 ±%.0f)'
@@ -152,6 +160,7 @@ assert min(xs)>-HALF_W and max(xs)<HALF_W and min(ys)>-HALF_H and max(ys)<HALF_H
 
 # ============ 出力 ============
 LC={1:1,2:1,3:2,4:1}
+PT_COLOR = 6                             # 実点の色（Jw_cad の寸法端部と同じ）
 def fm(v): return ('%.2f'%v).rstrip('0').rstrip('.')
 
 def elements(dx=0.0, dy=0.0, skip=()):
@@ -161,9 +170,20 @@ def elements(dx=0.0, dy=0.0, skip=()):
         es=[e for e in P if e[1]==ly]
         if not es: continue
         o += ['ly%d'%ly, 'lc%d'%LC[ly]]
-        lt=None; size=None
+        lt=None; size=None; pn=None
         for e in es:
-            if e[0]=='line':
+            if e[0]=='point':
+                if pn is None: pn=PT_COLOR; o.append('pn%d'%pn)
+                o.append('pt %s %s'%(fm(e[2]+dx),fm(e[3]+dy)))
+            elif e[0]=='dimfig':
+                if lt!=LT_SOLID: lt=LT_SOLID; o.append('lt%d'%lt)
+                o.append('msg')                      # 寸法図形の開始
+                o.append('%s %s %s %s'%(fm(e[3]+dx),fm(e[4]+dy),fm(e[5]+dx),fm(e[6]+dy)))
+                if e[2]!=size: size=e[2]; o.append('cn%d'%CHAR_TYPE[e[2]])
+                o.append('cs %s %s %s %s "%s'%(fm(e[7]+dx),fm(e[8]+dy),
+                                               fm(e[9]),fm(e[10]),e[11]))
+                o.append('#')                        # 寸法図形の終わり
+            elif e[0]=='line':
                 if e[2]!=lt: lt=e[2]; o.append('lt%d'%lt)
                 o.append('%s %s %s %s'%(fm(e[3]+dx),fm(e[4]+dy),fm(e[5]+dx),fm(e[6]+dy)))
             elif e[0]=='circle':
@@ -183,12 +203,10 @@ def elements(dx=0.0, dy=0.0, skip=()):
                                                fm(e[5]),fm(e[6]),e[7]))
     return o
 
-HEAD = ['# 展開図  洋室-1 / 事務室   A3  S=1/100',
-        '# レイヤ1:基準線  レイヤ2:寸法線  レイヤ3:枠線  レイヤ4:文字']
+# 作図データにコメント行は入れない（# は寸法図形の区切りとして意味を持つため）
+HEAD = []
 def gaibu(skip=()):
-    head = list(HEAD)
-    if skip: head.append('# 寸法線（レイヤ2）は含みません。Jw_cad の寸法コマンドで記入してください。')
-    return '\r\n'.join(head+elements(-BX0, -BY0, skip))+'\r\n'
+    return '\r\n'.join(HEAD+elements(-BX0, -BY0, skip))+'\r\n'
 
 def dxf():
     o=[]; a=lambda c,v: o.extend([str(c),str(v)])
@@ -209,7 +227,14 @@ def dxf():
     a(0,'SECTION'); a(2,'ENTITIES')
     for e in P:
         ly=str(e[1])
-        if e[0]=='line':
+        if e[0]=='point':
+            a(0,'POINT'); a(8,ly); a(10,e[2]); a(20,e[3]); a(30,0.0)
+        elif e[0]=='dimfig':
+            a(0,'LINE'); a(8,ly); a(6,'CONTINUOUS')
+            a(10,e[3]); a(20,e[4]); a(30,0.0); a(11,e[5]); a(21,e[6]); a(31,0.0)
+            a(0,'TEXT'); a(8,ly); a(10,e[7]); a(20,e[8]); a(30,0.0); a(40,theight(e[2]))
+            a(1,e[11]); a(50, 90 if abs(e[9])<1e-6 else 0); a(7,'STANDARD')
+        elif e[0]=='line':
             a(0,'LINE'); a(8,ly); a(6,'DASHDOT' if e[2]==LT_CHAIN else 'CONTINUOUS')
             a(10,e[3]); a(20,e[4]); a(30,0.0); a(11,e[5]); a(21,e[6]); a(31,0.0)
         elif e[0]=='circle':
@@ -237,7 +262,15 @@ px=lambda x:(x/SCALE+PAPER_W/2)*MM
 py=lambda y:(PAPER_H/2-y/SCALE)*MM
 for e in P:
     ly=e[1]; w=0.5 if ly==3 else 0.15
-    if e[0]=='line':
+    if e[0]=='point':
+        sh=pg.new_shape(); sh.draw_circle((px(e[2]),py(e[3])), DOT_R/SCALE*MM)
+        sh.finish(width=w,color=(0,0,0),fill=(0,0,0)); sh.commit()
+    elif e[0]=='dimfig':
+        sh=pg.new_shape(); sh.draw_line((px(e[3]),py(e[4])),(px(e[5]),py(e[6])))
+        sh.finish(width=w,color=(0,0,0)); sh.commit()
+        pg.insert_text((px(e[7]),py(e[8])), e[11], fontname='japan',
+                       fontsize=theight(e[2])/SCALE*MM, rotate=90 if abs(e[9])<1e-6 else 0)
+    elif e[0]=='line':
         sh=pg.new_shape(); sh.draw_line((px(e[3]),py(e[4])),(px(e[5]),py(e[6])))
         sh.finish(width=w,color=(0,0,0),dashes='[3 2] 0' if e[2]==LT_CHAIN else None); sh.commit()
     elif e[0]=='circle':
