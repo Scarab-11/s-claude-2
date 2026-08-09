@@ -9,7 +9,10 @@ Jw_cad へは外部変形（gaibu/）で作図させ、.jww で保存する。
 
 単位に注意:
   座標・文字列の長さベクトル … 実寸 mm（1/100 なら用紙 mm × 100）
-  cn0 の幅・高さ・間隔        … 用紙 mm（縮尺をかけない）
+  文字サイズ(hcw/hch/cn0)     … 用紙 mm（縮尺をかけない）
+
+文字は原則 文字種(cn2/cn3/cn5) で指定する。実機の hcw が Jw_cad 既定の
+1.5/2/2.5/3/3.5/4/4.5/5/6/12 であることを診断ダンプで確認済み。
 """
 import unicodedata, os
 
@@ -31,6 +34,10 @@ AX_CIR_R, AX_CIR_Y, AX_TICK    = 350, 1350, 250
 NAMEBOX_TOP, NAMEBOX_H, NAMEBOX_PAD = 550, 350, 150
 
 LT_SOLID, LT_CHAIN = 1, 5                # 線種 1=実線 5=一点鎖1
+
+# 文字種テーブル（用紙 mm）。Jw_cad 既定値で、実機の hcw/hch と一致。
+#   hcw 1.5 2 2.5 3 3.5 4 4.5 5 6 12  /  hcd は全て 0
+CHAR_TYPE = {1.5:1, 2.0:2, 2.5:3, 3.0:4, 3.5:5, 4.0:6, 4.5:7, 5.0:8, 6.0:9, 12.0:10}
 
 def tlen(s, mm):
     """文字列の実寸長さ。全角=1、半角=0.5 で数える（間隔0）。"""
@@ -164,9 +171,12 @@ def elements(dx=0.0, dy=0.0):
             else:
                 if e[2]!=size:
                     size=e[2]
-                    # cn0 幅 高さ 間隔 色（任意サイズ文字）
-                    # 文字サイズは「用紙 mm」。座標と長さベクトルは実寸 mm。
-                    o.append('cn0 %s %s 0 %d'%(fm(size),fm(size),LC[ly]))
+                    n=CHAR_TYPE.get(size)
+                    if n:
+                        o.append('cn%d'%n)          # 文字種で指定
+                    else:
+                        # 任意サイズ。幅・高さ・間隔は「用紙 mm」（実寸ではない）
+                        o.append('cn0 %s %s 0 %d'%(fm(size),fm(size),LC[ly]))
                 # ch 始点X 始点Y 長さX 長さY "文字列
                 o.append('ch %s %s %s %s "%s'%(fm(e[3]+dx),fm(e[4]+dy),
                                                fm(e[5]),fm(e[6]),e[7]))
