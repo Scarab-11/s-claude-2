@@ -2,68 +2,75 @@
 """展開図ジェネレータ  平面図(通り芯)→ 展開図 A/B/C/D  → 外部変形データ / DXF / プレビュー
 
 .jwc はバイナリ形式（DOS版 Jw_cad 由来）のため出力しない。
-Jw_cad へは外部変形（gaibu/）で作図させ、.jww で保存する。"""
+Jw_cad へは外部変形（gaibu/）で作図させ、.jww で保存する。
+
+文字は文字種(cn1..cn10)ではなく任意サイズ文字(cn0 幅 高さ 間隔 色)で出す。
+文字種の寸法は環境ごとの設定に依存するため。
+"""
 import unicodedata, os
 
 SCALE = 100                              # 1/100
 PAPER_W, PAPER_H = 420.0, 297.0          # A3
 HALF_W, HALF_H = PAPER_W/2*SCALE, PAPER_H/2*SCALE
-WALL_T = 80                              # 基準線から壁仕上面までの寄り（壁厚の半分程度）
+WALL_T = 80                              # 基準線から壁仕上面までの寄り
 
-# ---- 参考図から実測した作図規約（実寸 mm）--------------------
+# ---- 文字高（用紙 mm）----------------------------------------
+TXT_DIM  = 2.0     # 寸法値
+TXT_AXIS = 3.5     # 通り芯記号（X1・Y4 など）
+TXT_NAME = 2.5     # 室名・面記号
+
+# ---- 作図規約（実寸 mm）--------------------------------------
 DIM_OFF, DIM_STEP, DIM_TXT_GAP = 375, 450, 30
 VDIM_OFF, VDIM_EXT, DOT_R      = 760, 540, 25
 AX_UP, AX_DN                   = 900, 1050
-AX_CIR_R, AX_CIR_Y, AX_TICK    = 250, 1250, 190
+AX_CIR_R, AX_CIR_Y, AX_TICK    = 350, 1350, 250
 NAMEBOX_TOP, NAMEBOX_H, NAMEBOX_PAD = 550, 350, 150
 
-CH_W = {1: 2.0, 2: 2.5}                  # 文字種1=2.0mm / 文字種2=2.5mm（Jw_cad 既定）
-CH_D = {1: 0.0, 2: 0.0}
+LT_SOLID, LT_CHAIN = 1, 5                # 線種 1=実線 5=一点鎖1
 
-def tlen(s, cn):
+def tlen(s, mm):
+    """文字列の実寸長さ。全角=1、半角=0.5 で数える（間隔0）。"""
     n = sum(1.0 if unicodedata.east_asian_width(c) in 'WFA' else 0.5 for c in s)
-    return (n*CH_W[cn] + (len(s)-1)*CH_D[cn]) * SCALE
-def theight(cn): return CH_W[cn]*SCALE
+    return n * mm * SCALE
+def theight(mm): return mm * SCALE
 
-P = []
-def line(ly,x1,y1,x2,y2): P.append(('line',ly,x1,y1,x2,y2))
-def circle(ly,x,y,r):     P.append(('circle',ly,x,y,r))
-def text_h(ly,cx,by,cn,s):
-    L=tlen(s,cn); P.append(('text',ly,cx-L/2,by,cx+L/2,by,cn,s))
-def text_v(ly,bx,cy,cn,s):
-    L=tlen(s,cn); P.append(('text',ly,bx,cy-L/2,bx,cy+L/2,cn,s))
+P = []   # ('line',ly,lt,x1,y1,x2,y2) ('circle',ly,lt,x,y,r) ('text',ly,mm,x1,y1,dx,dy,s)
+def line(ly,lt,x1,y1,x2,y2): P.append(('line',ly,lt,x1,y1,x2,y2))
+def circle(ly,lt,x,y,r):     P.append(('circle',ly,lt,x,y,r))
+def text_h(ly,mm,cx,by,s):
+    L=tlen(s,mm); P.append(('text',ly,mm,cx-L/2,by,L,0,s))
+def text_v(ly,mm,bx,cy,s):
+    L=tlen(s,mm); P.append(('text',ly,mm,bx,cy-L/2,0,L,s))
 
 # ============ 1面ぶんの作図 ============
 def draw_face(ox, oy, L, H, room, face, axis, steps, chain):
-    """(ox,oy)=左端の基準線の下端。L=芯々の幅。axis=[(位置,記号 or None),..]
-       steps=枠線内の段差線位置（面基準）  chain=内訳寸法（芯々）"""
-    t  = WALL_T
-    fl, fr = ox+t, ox+L-t                      # 枠線の左右（基準線より内側）
+    t = WALL_T
+    fl, fr = ox+t, ox+L-t
 
     # --- レイヤ3 枠線 ---
-    line(3, fl, oy,   fr, oy  ); line(3, fr, oy,   fr, oy+H)
-    line(3, fr, oy+H, fl, oy+H); line(3, fl, oy+H, fl, oy  )
-    for s in steps:                            # 壁面が切り替わる位置
-        line(3, ox+s, oy, ox+s, oy+H)
+    line(3,LT_SOLID, fl,oy,   fr,oy  ); line(3,LT_SOLID, fr,oy,   fr,oy+H)
+    line(3,LT_SOLID, fr,oy+H, fl,oy+H); line(3,LT_SOLID, fl,oy+H, fl,oy  )
+    for s in steps:
+        line(3,LT_SOLID, ox+s,oy, ox+s,oy+H)
 
-    # --- レイヤ1 基準線＋通り芯記号 ---
+    # --- レイヤ1 基準線（一点鎖線）＋通り芯記号（実線）---
     for pos, mk in axis:
         x = ox+pos
-        line(1, x, oy-AX_DN, x, oy+H+AX_UP)
+        line(1,LT_CHAIN, x, oy-AX_DN, x, oy+H+AX_UP)
         if mk:
             cy = oy+H+AX_CIR_Y
-            circle(1, x, cy, AX_CIR_R)
-            line(1, x-AX_CIR_R-AX_TICK/2, cy, x-AX_CIR_R+AX_TICK/2, cy)
-            line(1, x+AX_CIR_R-AX_TICK/2, cy, x+AX_CIR_R+AX_TICK/2, cy)
-            line(1, x, cy-AX_CIR_R-AX_TICK/2, x, cy-AX_CIR_R+AX_TICK/2)
-            line(1, x, cy+AX_CIR_R-AX_TICK/2, x, cy+AX_CIR_R+AX_TICK/2)
-            text_h(1, x, cy-theight(1)/2, 1, mk)
+            circle(1,LT_SOLID, x, cy, AX_CIR_R)
+            line(1,LT_SOLID, x-AX_CIR_R-AX_TICK/2, cy, x-AX_CIR_R+AX_TICK/2, cy)
+            line(1,LT_SOLID, x+AX_CIR_R-AX_TICK/2, cy, x+AX_CIR_R+AX_TICK/2, cy)
+            line(1,LT_SOLID, x, cy-AX_CIR_R-AX_TICK/2, x, cy-AX_CIR_R+AX_TICK/2)
+            line(1,LT_SOLID, x, cy+AX_CIR_R-AX_TICK/2, x, cy+AX_CIR_R+AX_TICK/2)
+            text_h(1,TXT_AXIS, x, cy-theight(TXT_AXIS)/2, mk)
 
     # --- レイヤ2 幅寸法（すべて芯々・基準線間）---
     def hdim(y, x1, x2, val):
-        line(2, x1, y, x2, y)
-        circle(2, x1, y, DOT_R); circle(2, x2, y, DOT_R)
-        text_h(2, (x1+x2)/2, y+DIM_TXT_GAP, 1, '{:,}'.format(int(round(val))))
+        line(2,LT_SOLID, x1,y, x2,y)
+        circle(2,LT_SOLID, x1,y, DOT_R); circle(2,LT_SOLID, x2,y, DOT_R)
+        text_h(2,TXT_DIM, (x1+x2)/2, y+DIM_TXT_GAP, '{:,}'.format(int(round(val))))
     y_in = oy+H+DIM_OFF
     if chain:
         a = 0
@@ -75,23 +82,22 @@ def draw_face(ox, oy, L, H, room, face, axis, steps, chain):
 
     # --- レイヤ2 高さ寸法（天井高）---
     xd = ox-VDIM_OFF
-    line(2, xd, oy, xd, oy+H)
-    circle(2, xd, oy, DOT_R); circle(2, xd, oy+H, DOT_R)
-    line(2, xd, oy, xd+VDIM_EXT, oy); line(2, xd, oy+H, xd+VDIM_EXT, oy+H)
-    text_v(2, xd-DIM_TXT_GAP, oy+H/2, 1, '{:,}'.format(int(round(H))))
+    line(2,LT_SOLID, xd,oy, xd,oy+H)
+    circle(2,LT_SOLID, xd,oy, DOT_R); circle(2,LT_SOLID, xd,oy+H, DOT_R)
+    line(2,LT_SOLID, xd,oy, xd+VDIM_EXT,oy); line(2,LT_SOLID, xd,oy+H, xd+VDIM_EXT,oy+H)
+    text_v(2,TXT_DIM, xd-DIM_TXT_GAP, oy+H/2, '{:,}'.format(int(round(H))))
 
     # --- レイヤ4 室名 ---
-    text_h(4, ox+L/2, oy+H/2-theight(2)/2, 2, room)
+    text_h(4,TXT_NAME, ox+L/2, oy+H/2-theight(TXT_NAME)/2, room)
 
     # --- 面記号（枠=レイヤ3／文字=レイヤ4）---
-    bw = tlen(face,2)+NAMEBOX_PAD*2
+    bw = tlen(face,TXT_NAME)+NAMEBOX_PAD*2
     bx = ox+L/2-bw/2; bt = oy-NAMEBOX_TOP; bb = bt-NAMEBOX_H
-    line(3, bx,bb, bx+bw,bb); line(3, bx+bw,bb, bx+bw,bt)
-    line(3, bx+bw,bt, bx,bt); line(3, bx,bt, bx,bb)
-    text_h(4, ox+L/2, bb+(NAMEBOX_H-theight(2))/2, 2, face)
+    line(3,LT_SOLID, bx,bb, bx+bw,bb); line(3,LT_SOLID, bx+bw,bb, bx+bw,bt)
+    line(3,LT_SOLID, bx+bw,bt, bx,bt); line(3,LT_SOLID, bx,bt, bx,bb)
+    text_h(4,TXT_NAME, ox+L/2, bb+(NAMEBOX_H-theight(TXT_NAME))/2, face)
 
 # ============ 室の定義 ============
-# (面記号, 芯々幅L, 基準線[(位置,記号)], 段差線位置, 内訳寸法)
 ROOMS = [
     ('洋室-1', 2500, [
         ('Ａ　面', 3640, [(0,'X1'),(3640,'X2')],            [],     None),
@@ -108,7 +114,7 @@ ROOMS = [
 ]
 
 # ============ A3 への割付 ============
-PAD_L, PAD_R, PAD_T, PAD_B = 1150, 350, 1600, 1200
+PAD_L, PAD_R, PAD_T, PAD_B = 1150, 500, 1800, 1200
 GAP_X, GAP_Y = 3000, 4500
 rows=[]
 for room,H,faces in ROOMS:
@@ -125,42 +131,46 @@ for room,H,faces,rw,rh in rows:
 
 xs=[];ys=[]
 for e in P:
-    if e[0]=='line': xs+=[e[2],e[4]]; ys+=[e[3],e[5]]
-    elif e[0]=='circle': xs+=[e[2]-e[4],e[2]+e[4]]; ys+=[e[3]-e[4],e[3]+e[4]]
-    else: xs+=[e[2],e[4]]; ys+=[e[3],e[5]+theight(e[6])]
+    if e[0]=='line': xs+=[e[3],e[5]]; ys+=[e[4],e[6]]
+    elif e[0]=='circle': xs+=[e[3]-e[5],e[3]+e[5]]; ys+=[e[4]-e[5],e[4]+e[5]]
+    else: xs+=[e[3],e[3]+e[5]]; ys+=[e[4],e[4]+e[6]+theight(e[2])]
 BX0,BY0 = min(xs), min(ys)
 print('要素数 %d   X %.0f..%.0f (用紙 ±%.0f)   Y %.0f..%.0f (用紙 ±%.0f)'
       % (len(P),min(xs),max(xs),HALF_W,min(ys),max(ys),HALF_H))
 assert min(xs)>-HALF_W and max(xs)<HALF_W and min(ys)>-HALF_H and max(ys)<HALF_H
 
 # ============ 出力 ============
-LT={1:5,2:1,3:1,4:1}; LC={1:1,2:1,3:2,4:1}
+LC={1:1,2:1,3:2,4:1}
 def fm(v): return ('%.2f'%v).rstrip('0').rstrip('.')
 
 def elements(dx=0.0, dy=0.0):
-    """レイヤ順に並べた JWC 属性行＋データ行"""
     o=[]
     for ly in (1,2,3,4):
         es=[e for e in P if e[1]==ly]
         if not es: continue
-        o += ['ly%d'%ly, 'lc%d'%LC[ly], 'lt%d'%LT[ly]]
-        cn=None
+        o += ['ly%d'%ly, 'lc%d'%LC[ly]]
+        lt=None; size=None
         for e in es:
             if e[0]=='line':
-                o.append('%s %s %s %s'%(fm(e[2]+dx),fm(e[3]+dy),fm(e[4]+dx),fm(e[5]+dy)))
+                if e[2]!=lt: lt=e[2]; o.append('lt%d'%lt)
+                o.append('%s %s %s %s'%(fm(e[3]+dx),fm(e[4]+dy),fm(e[5]+dx),fm(e[6]+dy)))
             elif e[0]=='circle':
-                o.append('ci %s %s %s'%(fm(e[2]+dx),fm(e[3]+dy),fm(e[4])))
+                if e[2]!=lt: lt=e[2]; o.append('lt%d'%lt)
+                o.append('ci %s %s %s'%(fm(e[3]+dx),fm(e[4]+dy),fm(e[5])))
             else:
-                if e[6]!=cn: cn=e[6]; o.append('cn%d'%cn)
-                # ch は「始点X 始点Y 文字列の長さX 長さY」。第3・4は長さベクトル。
-                o.append('ch %s %s %s %s "%s'%(fm(e[2]+dx),fm(e[3]+dy),
-                                               fm(e[4]-e[2]),fm(e[5]-e[3]),e[7]))
+                if e[2]!=size:
+                    size=e[2]
+                    h=theight(size)
+                    # cn0 幅 高さ 間隔 色（任意サイズ文字）
+                    o.append('cn0 %s %s 0 %d'%(fm(h),fm(h),LC[ly]))
+                # ch 始点X 始点Y 長さX 長さY "文字列
+                o.append('ch %s %s %s %s "%s'%(fm(e[3]+dx),fm(e[4]+dy),
+                                               fm(e[5]),fm(e[6]),e[7]))
     return o
 
 HEAD = ['# 展開図  洋室-1 / 事務室   A3  S=1/100',
         '# レイヤ1:基準線  レイヤ2:寸法線  レイヤ3:枠線  レイヤ4:文字']
-
-def gaibu(): return '\r\n'.join(HEAD+elements(-BX0, -BY0))+'\r\n'   # 左下を原点に
+def gaibu(): return '\r\n'.join(HEAD+elements(-BX0, -BY0))+'\r\n'
 
 def dxf():
     o=[]; a=lambda c,v: o.extend([str(c),str(v)])
@@ -172,8 +182,7 @@ def dxf():
     a(0,'ENDTAB')
     a(0,'TABLE'); a(2,'LAYER'); a(70,4)
     for ly in (1,2,3,4):
-        a(0,'LAYER'); a(2,str(ly)); a(70,0); a(62,LC[ly])
-        a(6,'DASHDOT' if ly==1 else 'CONTINUOUS')
+        a(0,'LAYER'); a(2,str(ly)); a(70,0); a(62,LC[ly]); a(6,'CONTINUOUS')
     a(0,'ENDTAB')
     a(0,'TABLE'); a(2,'STYLE'); a(70,1)
     a(0,'STYLE'); a(2,'STANDARD'); a(70,0); a(40,0.0); a(41,1.0); a(50,0.0)
@@ -183,12 +192,14 @@ def dxf():
     for e in P:
         ly=str(e[1])
         if e[0]=='line':
-            a(0,'LINE'); a(8,ly); a(10,e[2]); a(20,e[3]); a(30,0.0); a(11,e[4]); a(21,e[5]); a(31,0.0)
+            a(0,'LINE'); a(8,ly); a(6,'DASHDOT' if e[2]==LT_CHAIN else 'CONTINUOUS')
+            a(10,e[3]); a(20,e[4]); a(30,0.0); a(11,e[5]); a(21,e[6]); a(31,0.0)
         elif e[0]=='circle':
-            a(0,'CIRCLE'); a(8,ly); a(10,e[2]); a(20,e[3]); a(30,0.0); a(40,e[4])
+            a(0,'CIRCLE'); a(8,ly); a(6,'CONTINUOUS')
+            a(10,e[3]); a(20,e[4]); a(30,0.0); a(40,e[5])
         else:
-            a(0,'TEXT'); a(8,ly); a(10,e[2]); a(20,e[3]); a(30,0.0); a(40,theight(e[6]))
-            a(1,e[7]); a(50, 90 if abs(e[4]-e[2])<1e-6 else 0); a(7,'STANDARD')
+            a(0,'TEXT'); a(8,ly); a(10,e[3]); a(20,e[4]); a(30,0.0); a(40,theight(e[2]))
+            a(1,e[7]); a(50, 90 if abs(e[5])<1e-6 else 0); a(7,'STANDARD')
     a(0,'ENDSEC'); a(0,'EOF')
     return '\r\n'.join(o)+'\r\n'
 
@@ -197,7 +208,7 @@ os.makedirs(D, exist_ok=True)
 open(D+'tenkaizu.dxf','w',encoding='cp932',newline='').write(dxf())
 open(D+'tenkaizu_data.txt','w',encoding='cp932',newline='').write(gaibu())
 for f in ('tenkaizu.dxf','tenkaizu_data.txt'):
-    print('  %-20s %6d bytes' % (f, os.path.getsize(D+f)))
+    print('  %-20s %6d bytes'%(f, os.path.getsize(D+f)))
 
 # ============ プレビュー ============
 import pymupdf
@@ -208,15 +219,14 @@ py=lambda y:(PAPER_H/2-y/SCALE)*MM
 for e in P:
     ly=e[1]; w=0.5 if ly==3 else 0.15
     if e[0]=='line':
-        sh=pg.new_shape(); sh.draw_line((px(e[2]),py(e[3])),(px(e[4]),py(e[5])))
-        sh.finish(width=w,color=(0,0,0),dashes='[3 2] 0' if ly==1 else None); sh.commit()
+        sh=pg.new_shape(); sh.draw_line((px(e[3]),py(e[4])),(px(e[5]),py(e[6])))
+        sh.finish(width=w,color=(0,0,0),dashes='[3 2] 0' if e[2]==LT_CHAIN else None); sh.commit()
     elif e[0]=='circle':
-        sh=pg.new_shape(); sh.draw_circle((px(e[2]),py(e[3])),e[4]/SCALE*MM)
-        sh.finish(width=w,color=(0,0,0),fill=(0,0,0) if e[4]<=DOT_R else None); sh.commit()
+        sh=pg.new_shape(); sh.draw_circle((px(e[3]),py(e[4])),e[5]/SCALE*MM)
+        sh.finish(width=w,color=(0,0,0),fill=(0,0,0) if e[5]<=DOT_R else None); sh.commit()
     else:
-        pg.insert_text((px(e[2]),py(e[3])), e[7], fontname='japan',
-                       fontsize=theight(e[6])/SCALE*MM,
-                       rotate=90 if abs(e[4]-e[2])<1e-6 else 0)
+        pg.insert_text((px(e[3]),py(e[4])), e[7], fontname='japan',
+                       fontsize=theight(e[2])/SCALE*MM, rotate=90 if abs(e[5])<1e-6 else 0)
 doc.save(D+'preview.pdf')
 pymupdf.open(D+'preview.pdf')[0].get_pixmap(dpi=200).save(D+'preview.png')
 print('  preview ok')
