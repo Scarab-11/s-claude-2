@@ -154,9 +154,10 @@ assert min(xs)>-HALF_W and max(xs)<HALF_W and min(ys)>-HALF_H and max(ys)<HALF_H
 LC={1:1,2:1,3:2,4:1}
 def fm(v): return ('%.2f'%v).rstrip('0').rstrip('.')
 
-def elements(dx=0.0, dy=0.0):
+def elements(dx=0.0, dy=0.0, skip=()):
     o=[]
     for ly in (1,2,3,4):
+        if ly in skip: continue
         es=[e for e in P if e[1]==ly]
         if not es: continue
         o += ['ly%d'%ly, 'lc%d'%LC[ly]]
@@ -184,7 +185,10 @@ def elements(dx=0.0, dy=0.0):
 
 HEAD = ['# 展開図  洋室-1 / 事務室   A3  S=1/100',
         '# レイヤ1:基準線  レイヤ2:寸法線  レイヤ3:枠線  レイヤ4:文字']
-def gaibu(): return '\r\n'.join(HEAD+elements(-BX0, -BY0))+'\r\n'
+def gaibu(skip=()):
+    head = list(HEAD)
+    if skip: head.append('# 寸法線（レイヤ2）は含みません。Jw_cad の寸法コマンドで記入してください。')
+    return '\r\n'.join(head+elements(-BX0, -BY0, skip))+'\r\n'
 
 def dxf():
     o=[]; a=lambda c,v: o.extend([str(c),str(v)])
@@ -221,7 +225,8 @@ D=os.path.dirname(os.path.abspath(__file__))+'/out/'
 os.makedirs(D, exist_ok=True)
 open(D+'tenkaizu.dxf','w',encoding='cp932',newline='').write(dxf())
 open(D+'tenkaizu_data.txt','w',encoding='cp932',newline='').write(gaibu())
-for f in ('tenkaizu.dxf','tenkaizu_data.txt'):
+open(D+'tenkaizu_data_nodim.txt','w',encoding='cp932',newline='').write(gaibu(skip=(2,)))
+for f in ('tenkaizu.dxf','tenkaizu_data.txt','tenkaizu_data_nodim.txt'):
     print('  %-20s %6d bytes'%(f, os.path.getsize(D+f)))
 
 # ============ プレビュー ============
