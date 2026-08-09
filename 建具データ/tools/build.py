@@ -17,6 +17,11 @@
    12番の行をそのまま写して "300" を置き換えるだけで、他は一切変えない。
    12番の直後ではなく末尾に足しているのは、折戸の番号(13・14番)を動かさないため。
 
+3. 左右反転した建具を末尾に足す(17〜23番)
+   建具データの書式には「反転」の指定が無く、コントロールバーに項目を
+   増やすこともできない。反転させたいものは建具として別に登録するしかない。
+   反転は機械的な変換なので手では書かず、mirror() で作る。
+
 残す建具のデータには手を触れない。編集後は check.py を通すこと。
 """
 
@@ -40,6 +45,17 @@ FOLD = 13                          # 元ファイル上の位置(0始まり) = 1
 FOLD_NAME = "折戸（見込線付）"
 FOLD_ADD = ["1 9   0   0   0   0   2 0 -1", "1 9   0  70   0  70   2 0 -1"]
 
+# 左右反転して末尾に足す建具(組み立て後の建具名で指定する)。
+# 左右対称なもの(引違い・両開き戸・折戸・ドアー(１レイヤ躯体線付))は
+# 反転しても同じ形になるので入れない。
+MIRROR = ["片引戸",
+          "ドアー（見込線付）",
+          "親子開き戸（見込線付）",
+          "ドアー",
+          "親子ドアー（子扉300）",
+          "親子ドアー（子扉400）",
+          "親子ドアー（子扉450）"]
+
 TERM = re.compile(r"^\s*(999|995|991)\b")
 HEAD = re.compile(r"^\s*(\d+)\s{2,}(\S.*)$")
 
@@ -59,6 +75,63 @@ def entries(lines):
             out.append((start, i))
             start = None
     return out
+
+
+def append_tail(lines, block):
+    """最後の終端行の直後に block を差し込む(末尾に建具を1件以上足す)。"""
+    tail = len(lines) - 1
+    while not TERM.match(lines[tail]):
+        tail -= 1
+    lines[tail + 1:tail + 1] = block
+
+
+def num(v):
+    """座標・角度を書き戻す。-0 が出ないようにしておく。"""
+    if v == 0:
+        v = 0.0
+    return "%g" % v
+
+
+def mirror(block, div):
+    """建具1件分の行を左右反転して返す。block は 建具名行〜終端行。
+
+    反転は
+        ・点番号 p → 分割数+1-p (左端と右端が入れ替わる)
+        ・X の符号を変える (Y はそのまま。上下は反転しない)
+        ・円弧の回り方向を変える (角度の符号を変える)
+    の3つだけ。円弧コードは「中心→始点/終点」の区別なので変えない。
+
+    X方向の伸縮規則(左ブロックは-20mm以下、右ブロックは20mm以上の端が
+    枠幅に追従し、それ以外は動かない)は左右対称なので、この変換で
+    伸び縮みのしかたもそのまま反転する。親子ドアーの子扉が右端から
+    -300 で書いてあるものは、反転すると左端から +300 になり、
+    やはり動かない側に入る。
+    """
+    name = HEAD.match(block[0])
+    out = [block[0].replace(name.group(2).strip(), mirror_name(name.group(2).strip()))]
+    for line in block[1:-1]:
+        t = line.split()
+        if not t or not t[0][0].isdigit():        # 基準寸法の S / s 行など
+            out.append(line)
+            continue
+        p1, p2 = div + 1 - int(t[0]), div + 1 - int(t[1])
+        x1, y1, x2, y2 = (float(v) for v in t[2:6])
+        ei = next((k for k, v in enumerate(t) if v.lower() == "e"), len(t))
+        s = "%d %d %5s %4s %5s %4s" % (p1, p2, num(-x1), num(y1), num(-x2), num(y2))
+        if ei > 6:
+            s += "   %s %s %-3s" % tuple(t[6:ei])
+        if ei < len(t):
+            # 角度は -180 でなく 180 と書く(同じ向きだが素直な方に揃える)
+            a = -float(t[ei + 1])
+            s += "  e %8s %3s" % (num(180.0 if a == -180 else a), t[ei + 2])
+        out.append(s.rstrip())
+    out.append(block[-1])
+    return out
+
+
+def mirror_name(name):
+    """建具名に「左右反転」を入れる。すでに括弧があればその中に足す。"""
+    return name[:-1] + "・左右反転）" if name.endswith("）") else name + "（左右反転）"
 
 
 def main():
@@ -104,14 +177,24 @@ def main():
         del lines[cut:ent[k][1] + 1]
 
     # 末尾(最後の 999 の直後)に追加分を差し込む
-    tail = len(lines) - 1
-    while not TERM.match(lines[tail]):
-        tail -= 1
-    lines[tail + 1:tail + 1] = added
+    append_tail(lines, added)
+
+    # ここまでで16件。この16件から左右反転した建具を作って末尾に足す。
+    block = {}
+    for a, b in entries(lines):
+        m = HEAD.match(lines[a])
+        block[m.group(2).strip()] = (int(m.group(1)), lines[a:b + 1])
+    mir = []
+    for name in MIRROR:
+        if name not in block:
+            sys.exit("反転させる建具が見つからない: %s" % name)
+        div, src = block[name]
+        mir += ["#"] + mirror(src, div)
+    append_tail(lines, mir)
 
     # 見出しの登録件数を実際の件数に合わせる(数が違うと Jw_cad の表示が崩れる)
     count = len(entries(lines))
-    if count != 16 - len(DROP) + len(WIDTHS) + 1:
+    if count != 16 - len(DROP) + len(WIDTHS) + 1 + len(MIRROR):
         sys.exit("組み立て後の件数が想定と違う: %d 件" % count)
     lines[2] = str(count)
 
