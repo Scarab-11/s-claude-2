@@ -152,8 +152,9 @@ def elements(dx=0.0, dy=0.0):
                 o.append('ci %s %s %s'%(fm(e[2]+dx),fm(e[3]+dy),fm(e[4])))
             else:
                 if e[6]!=cn: cn=e[6]; o.append('cn%d'%cn)
+                # ch は「始点X 始点Y 文字列の長さX 長さY」。第3・4は長さベクトル。
                 o.append('ch %s %s %s %s "%s'%(fm(e[2]+dx),fm(e[3]+dy),
-                                               fm(e[4]+dx),fm(e[5]+dy),e[7]))
+                                               fm(e[4]-e[2]),fm(e[5]-e[3]),e[7]))
     return o
 
 HEAD = ['# 展開図  洋室-1 / 事務室   A3  S=1/100',
