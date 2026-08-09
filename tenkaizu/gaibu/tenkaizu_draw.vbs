@@ -11,7 +11,10 @@ Option Explicit
 Dim gFso : Set gFso = CreateObject("Scripting.FileSystemObject")
 
 Dim scriptDir : scriptDir = gFso.GetParentFolderName(WScript.ScriptFullName)
-Dim dataPath  : dataPath  = gFso.BuildPath(scriptDir, "tenkaizu_data.txt")
+' 第1引数で作図データのファイル名を指定できる（既定は tenkaizu_data.txt）
+Dim dataName : dataName = "tenkaizu_data.txt"
+If WScript.Arguments.Count >= 1 Then dataName = WScript.Arguments(0)
+Dim dataPath  : dataPath  = gFso.BuildPath(scriptDir, dataName)
 Dim tempPath  : tempPath  = FindTemp()
 
 If tempPath = "" Then
@@ -20,7 +23,7 @@ If tempPath = "" Then
     WScript.Quit 1
 End If
 If Not gFso.FileExists(dataPath) Then
-    WScript.Echo "tenkaizu_data.txt が見つかりません。" & vbCrLf & _
+    WScript.Echo dataName & " が見つかりません。" & vbCrLf & _
                  "バッチファイルと同じフォルダに置いてください。"
     WScript.Quit 1
 End If
