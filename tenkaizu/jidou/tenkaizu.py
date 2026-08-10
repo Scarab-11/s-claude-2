@@ -204,7 +204,15 @@ def inside(p, poly):
 # 多角形 → Ａ～Ｄ面
 # ============================================================
 REV = {0:False, 1:True, 2:True, 3:False}      # Ａ:X昇 Ｂ:Y降 Ｃ:X降 Ｄ:Y昇
+DEEP_IS_MAX = {0:True, 1:True, 2:False, 3:False}   # 見る側から遠いのは Ａ:Y大 Ｂ:X大 Ｃ:Y小 Ｄ:X小
 def faces_of(poly):
+    """室の多角形から Ａ～Ｄ面の幅・内訳・壁面位置を求める。
+
+    面の幅は、その向きの壁を**面の軸に投影した和集合**の長さ。
+    壁の長さの単純合計にすると、コの字・工の字のように同じ向きの壁が
+    前後2枚ある室で、面の幅が室の全長を超えてしまう。
+    投影が重なる区間は、遠い側（室の外形をなす方）の壁を採用する。
+    """
     edge = {0:[], 1:[], 2:[], 3:[]}
     for (x1,y1),(x2,y2) in zip(poly, poly[1:]+poly[:1]):
         if abs(y1-y2) < EPS:
@@ -214,13 +222,25 @@ def faces_of(poly):
     out = {}
     for k, es in edge.items():
         if not es: continue
-        es.sort(key=lambda e: e[0], reverse=REV[k])
+        # 軸方向に区切り、区間ごとに1枚の壁を決める
+        cuts = sorted({v for a, b, _ in es for v in (a, b)})
+        cells, overlap = [], 0.0
+        for a, b in zip(cuts, cuts[1:]):
+            if b - a < EPS: continue
+            cov = [pl for ea, eb, pl in es if ea <= a + EPS and eb >= b - EPS]
+            if not cov: continue                    # 投影が途切れる区間（通常は無い）
+            if len(cov) > 1: overlap += b - a
+            cells.append((a, b, max(cov) if DEEP_IS_MAX[k] else min(cov)))
+        if not cells: continue
+        cells.sort(key=lambda c: c[0], reverse=REV[k])
         segs, planes = [], []
-        for a, b, pl in es:
+        for a, b, pl in cells:
             if planes and abs(pl - planes[-1]) < EPS: segs[-1] += b - a
             else: segs.append(b - a); planes.append(pl)
-        ends = (es[0][1] if REV[k] else es[0][0], es[-1][0] if REV[k] else es[-1][1])
-        out[k] = dict(total=sum(segs), segs=segs, ends=ends, planes=planes)
+        lo, hi = cells[0], cells[-1]
+        ends = (lo[1], hi[0]) if REV[k] else (lo[0], hi[1])
+        out[k] = dict(total=sum(segs), segs=segs, ends=ends, planes=planes,
+                      overlap=overlap)
     return out
 
 # ============================================================
@@ -458,6 +478,10 @@ def main():
         for k in range(4):
             if k not in fs: continue
             f = fs[k]; L = f['total']; segs = f['segs']
+            if f['overlap'] > EPS:
+                log('  ※ %s %s面 : 同じ向きの壁が前後2枚あります'
+                    '（重なり %d mm）。遠い側の壁で作図しました。'
+                    % (nm, FACE_MARK[k], round(f['overlap'])))
             a0, a1 = f['ends']
             tbl = xn if k in (0,2) else yn
             m0, m1 = name_at(tbl, a0), name_at(tbl, a1)

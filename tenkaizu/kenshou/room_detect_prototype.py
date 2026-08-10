@@ -131,11 +131,23 @@ def faces_of(poly):
     # 見る向きに応じた左→右の並び順
     #   Ａ(北を見る)=X昇順  Ｂ(東)=Y降順  Ｃ(南)=X降順  Ｄ(西)=Y昇順
     REV={'Ａ':False, 'Ｂ':True, 'Ｃ':True, 'Ｄ':False}
+    # 遠い側（室の外形をなす側）の壁 … Ａ:Y大 Ｂ:X大 Ｃ:Y小 Ｄ:X小
+    DEEP_IS_MAX={'Ａ':True, 'Ｂ':True, 'Ｃ':False, 'Ｄ':False}
     for k,es in edge.items():
         if not es: continue
-        es.sort(key=lambda e:e[0], reverse=REV[k])
+        # 面の幅は壁の長さの合計ではなく、軸に投影した和集合。
+        # 合計にするとコの字・工の字の室で面の幅が室の全長を超える。
+        cuts=sorted({v for a,b,_ in es for v in (a,b)})
+        cells=[]
+        for a,b in zip(cuts,cuts[1:]):
+            if b-a<EPS: continue
+            cov=[pl for ea,eb,pl in es if ea<=a+EPS and eb>=b-EPS]
+            if not cov: continue
+            cells.append((a,b,max(cov) if DEEP_IS_MAX[k] else min(cov)))
+        if not cells: continue
+        cells.sort(key=lambda c:c[0], reverse=REV[k])
         segs=[]; planes=[]
-        for a,b,pl in es:
+        for a,b,pl in cells:
             L=round(b-a); pl=round(pl)
             if planes and abs(pl-planes[-1])<EPS:
                 segs[-1]+=L                      # 同一面はつなぐ（T字接合の分割を解消）
