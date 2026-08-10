@@ -182,7 +182,7 @@ for e in P:
     elif e[0]=='dimfig':
         xs+=[e[4],e[6],e[8],e[8]+e[10]]; ys+=[e[5],e[7],e[9],e[9]+e[11]+theight(e[3])]
     else: xs+=[e[4],e[4]+e[6]]; ys+=[e[5],e[5]+e[7]+theight(e[3])]
-BX0,BY0 = min(xs), min(ys)
+BX0,BY0,BY1 = min(xs), min(ys), max(ys)
 print('要素数 %d   X %.0f..%.0f (用紙 ±%.0f)   Y %.0f..%.0f (用紙 ±%.0f)'
       % (len(P),min(xs),max(xs),HALF_W,min(ys),max(ys),HALF_H))
 assert min(xs)>-HALF_W and max(xs)<HALF_W and min(ys)>-HALF_H and max(ys)<HALF_H
@@ -228,7 +228,8 @@ def elements(dx=0.0, dy=0.0, skip=()):
                 o.append('ch %s %s %s %s "%s'%(fm(e[4]+dx),fm(e[5]+dy),
                                                fm(e[6]),fm(e[7]),e[8]))
     return o
-def gaibu(skip=()): return '\r\n'.join(elements(-BX0,-BY0,skip))+'\r\n'
+# 外部変形の指示点は図面全体の「左上」。左端・上端を原点に合わせる
+def gaibu(skip=()): return '\r\n'.join(elements(-BX0,-BY1,skip))+'\r\n'
 
 # ============ DXF (R12) ============
 def dxf():

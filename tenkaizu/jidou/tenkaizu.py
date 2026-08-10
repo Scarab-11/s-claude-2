@@ -570,7 +570,8 @@ def main():
         elif e[0]=='point': xs+=[e[2]]; ys+=[e[3]]
         elif e[0]=='dimfig': xs+=[e[4],e[6],e[8],e[8]+e[10]]; ys+=[e[5],e[7],e[9],e[9]+e[11]+theight(e[3])]
         else: xs+=[e[4],e[4]+e[6]]; ys+=[e[5],e[5]+e[7]+theight(e[3])]
-    bx0, by0 = min(xs), min(ys)
+    # 指示点は図面全体の「左上」。X は左端、Y は上端に合わせる
+    bx0, by1 = min(xs), max(ys)
 
     # 配置基準点（REM #1 の hp1）。無ければ原点
     ox = oy = 0.0
@@ -581,7 +582,7 @@ def main():
             if len(p) >= 3: ox, oy = float(p[1]), float(p[2])
             break
 
-    out = emit(ox - bx0, oy - by0)
+    out = emit(ox - bx0, oy - by1)
     with open(temp, 'w', encoding='cp932', errors='replace', newline='') as f:
         f.write('\r\n'.join(out) + '\r\n')
     log('')
