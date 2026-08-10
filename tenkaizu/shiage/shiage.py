@@ -12,7 +12,11 @@
 """
 import sys, os, re, unicodedata
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+# exe化（PyInstaller）したときは、__file__ が一時展開フォルダを指してしまう。
+# 設定ファイルとログは必ず「exe（またはスクリプト）を置いたフォルダ」で扱う。
+HERE = (os.path.dirname(os.path.abspath(sys.executable))
+        if getattr(sys, 'frozen', False)
+        else os.path.dirname(os.path.abspath(__file__)))
 
 # ---- 動作の記録（必ず shiage_log.txt に残す）------------------
 LOG = []

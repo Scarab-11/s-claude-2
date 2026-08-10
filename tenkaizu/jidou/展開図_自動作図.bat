@@ -28,12 +28,23 @@ set "DIR=%~dp0"
 set "ERR=%DIR%tenkaizu_error.txt"
 set "LOG=%DIR%tenkaizu_log.txt"
 
+REM ---- exe があればそれを使う（配布先に Python は不要）----
+if exist "%DIR%tenkaizu.exe" (
+  "%DIR%tenkaizu.exe" 2> "%ERR%"
+  if errorlevel 1 goto :failed
+  goto :eof
+)
+
+REM ---- exe が無ければ Python でスクリプトを実行する ----
 set "PY="
 where py >nul 2>&1 && set "PY=py"
 if not defined PY where python >nul 2>&1 && set "PY=python"
 if not defined PY (
   echo Python が見つかりません。> "%ERR%"
   echo コマンドプロンプトで py --version が動くか確認してください。>> "%ERR%"
+  echo.>> "%ERR%"
+  echo Python を入れずに使うには、exe作成.bat で作った>> "%ERR%"
+  echo tenkaizu.exe をこのフォルダに置いてください。>> "%ERR%"
   notepad "%ERR%"
   goto :eof
 )
