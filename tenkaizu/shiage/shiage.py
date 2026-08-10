@@ -31,7 +31,7 @@ def write_log():
 # ============================================================
 CFG = {
     '表レイヤ':'すべて',
-    '作図レイヤグループ':'0', '縮尺':'1',
+    '作図レイヤグループ':'e', '縮尺':'100',
     '用紙幅':'420', '用紙高':'297',
     '1枚の枠数':'5', '枠ピッチ_縦':'52.0', '枠のすきま':'2.9', '用紙ピッチ_縦':'297',
     '枠の左余白':'22.0', '枠の上余白':'14.3',
@@ -44,7 +44,7 @@ CFG = {
     '備考の項目':'備考',
     '腰壁の取り出し元':'壁',
     'レイヤ_枠':'0', 'レイヤ_文字':'1',
-    '線色_枠':'1', '線色_文字':'1',
+    '線色_外枠':'5', '線色_内部線':'2', '線色_文字':'6',
     '用紙枠':'しない', '線色_用紙枠':'8',
     '覆い率':'0.5',
 }
@@ -231,14 +231,15 @@ def wrap(s, width, mm):
 def draw_block(bx, bytop, room, items):
     """1室ぶんの縦組み仕上表を描く。戻り値は枠の高さ（用紙mm）"""
     LY_F, LY_T = I('レイヤ_枠'), I('レイヤ_文字')
-    C_F, C_T   = I('線色_枠'), I('線色_文字')
+    C_O, C_I, C_T = I('線色_外枠'), I('線色_内部線'), I('線色_文字')
     TH  = F('文字高')
     W   = S(F('枠幅')); LW = S(F('見出し列幅')); PAD = S(F('文字の余白'))
     H0  = S(F('行高_室名'))
     # ---- 室名（見出し行）----
+    # 室名と床の間の線は、外枠と同じ線色にする
     text_c(LY_T, C_T, TH, bx+W/2, bytop-H0+(H0-S(TH))/2, room)
     y = bytop - H0
-    line(LY_F, C_F, bx, y, bx+W, y)
+    line(LY_F, C_O, bx, y, bx+W, y)
     # ---- 各項目 ----
     for idx, (name, ndef, lh_mm, split, body) in enumerate(items):
         lh = S(lh_mm)
@@ -247,7 +248,7 @@ def draw_block(bx, bytop, room, items):
         text_c(LY_T, C_T, TH, bx+LW/2, y-h/2-S(TH)/2, name)
         if split:                                  # 床・巾木は段ごとに仕切る
             for k in range(1, n):
-                line(LY_F, C_F, bx+LW, y-k*lh, bx+W, y-k*lh)
+                line(LY_F, C_I, bx+LW, y-k*lh, bx+W, y-k*lh)
             off = 0.0                              # 上の段から順に入れる
         else:
             off = (n - len(body)) / 2.0            # 行のまん中に寄せる
@@ -256,10 +257,10 @@ def draw_block(bx, bytop, room, items):
             top = y - (off+k)*lh
             text_l(LY_T, C_T, TH, bx+LW+PAD, top-lh+(lh-S(TH))/2, s)
         y -= h
-        if idx < len(items)-1: line(LY_F, C_F, bx, y, bx+W, y)
+        if idx < len(items)-1: line(LY_F, C_I, bx, y, bx+W, y)
     # ---- 外枠と見出し列の縦線 ----
-    rect(LY_F, C_F, bx, bytop, W, bytop-y)
-    line(LY_F, C_F, bx+LW, bytop-H0, bx+LW, y)
+    rect(LY_F, C_O, bx, bytop, W, bytop-y)
+    line(LY_F, C_I, bx+LW, bytop-H0, bx+LW, y)
     return (bytop - y) / SCALE
 
 # ============================================================
@@ -270,7 +271,7 @@ def fm(v):
     s = ('%.2f' % v).rstrip('0').rstrip('.')
     return s if s not in ('', '-') else '0'
 def emit(dx=0.0, dy=0.0):
-    o = ['lg%s' % CFG['作図レイヤグループ']]
+    o = ['lg%s' % CFG['作図レイヤグループ'].strip().lower()]
     for ly in sorted({e[1] for e in P}):
         o.append('ly%x' % ly)
         lc = size = None
