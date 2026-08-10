@@ -34,19 +34,22 @@ def write_log():
 # ============================================================
 CFG = {
     '壁芯線レイヤ':'f', '室名レイヤ':'d', '天井高レイヤ':'e', '通り芯レイヤ':'1',
-    '巾木レイヤ':'c',
-    '天井高の接頭辞':'ch=', '巾木の接頭辞':'巾木',
+    '巾木レイヤ':'c', '腰壁レイヤ':'b',
+    '天井高の接頭辞':'ch=', '巾木の接頭辞':'巾木', '腰壁の接頭辞':'腰壁',
     '室名から除外':'ｶｳﾝﾀｰ,カウンター',
     '作図レイヤグループ':'1',
     '壁の寄り':'80',
-    '文字高_寸法':'2.0', '文字高_室名':'2.5', '文字高_通り芯記号':'3.5',
+    '腰壁の見切り厚':'25', '腰壁の縦線ピッチ':'110',
+    '文字高_寸法':'2.0', '文字高_室名':'2.5', '文字高_通り芯記号':'2.0',
+    '通り芯記号の円径':'400',
     '線色_基準線':'1', '線色_通り芯記号':'4', '線色_寸法':'2', '線色_実点':'6',
     '線色_外形線':'5', '線色_段差線':'1', '線色_面記号枠':'2', '線色_文字':'1',
-    '線色_巾木':'1',
+    '線色_巾木':'1', '線色_腰壁':'1',
     'レイヤ_基準線':'1', 'レイヤ_寸法':'2', 'レイヤ_外形線':'3',
-    'レイヤ_文字':'4', 'レイヤ_段差線':'5', 'レイヤ_巾木':'6',
+    'レイヤ_文字':'4', 'レイヤ_段差線':'5', 'レイヤ_巾木':'6', 'レイヤ_腰壁':'7',
     '用紙幅':'420', '用紙高':'297', '縮尺':'100',
-    '面の間隔_横':'1500', '面の間隔_縦':'1500', '室ごとに改行':'しない',
+    '面の間隔_横':'1500', '面の間隔_縦':'1500', '室ごとに改行':'する',
+    '折り返し幅':'30000',
     '面の記号':'Ａ　面,Ｂ　面,Ｃ　面,Ｄ　面',
 }
 def load_cfg():
@@ -77,7 +80,9 @@ FACE_MARK = [s.strip() for s in CFG['面の記号'].split(',')]
 DIM_OFF, DIM_STEP, DIM_TXT_GAP = 375, 450, 30
 VDIM_OFF, VDIM_EXT             = 760, 540
 AX_UP, AX_DN                   = 900, 1050
-AX_CIR_R, AX_CIR_Y, AX_TICK    = 350, 1350, 250
+# 通り芯記号は「径」で指定する（十字の出は径に比例させる）
+AX_CIR_R = F('通り芯記号の円径') / 2
+AX_CIR_Y, AX_TICK = 1350, AX_CIR_R * 0.7
 NAMEBOX_TOP, NAMEBOX_H, NAMEBOX_PAD = 550, 350, 150
 PAD_L, PAD_R, PAD_T, PAD_B = 1150, 500, 1800, 1200
 CHAR_TYPE = {1.5:1, 2.0:2, 2.5:3, 3.0:4, 3.5:5, 4.0:6, 4.5:7, 5.0:8, 6.0:9, 12.0:10}
@@ -289,14 +294,14 @@ def dimfig_h(ly,lc,mm,x1,y1,x2,y2,cx,by,s):
 def dimfig_v(ly,lc,mm,x1,y1,x2,y2,bx,cy,s):
     n=tlen(s,mm); P.append(('dimfig',ly,lc,mm,x1,y1,x2,y2,bx,cy-n/2,0,n,s))
 
-def draw_face(ox, oy, L, H, room, mark, axis, steps, chain, haba=None):
+def draw_face(ox, oy, L, H, room, mark, axis, steps, chain, haba=None, koshi=None):
     LY_A,LY_D,LY_F,LY_T,LY_S = (I('レイヤ_基準線'),I('レイヤ_寸法'),I('レイヤ_外形線'),
                                 I('レイヤ_文字'),I('レイヤ_段差線'))
-    LY_H = I('レイヤ_巾木')
+    LY_H, LY_K = I('レイヤ_巾木'), I('レイヤ_腰壁')
     C_A,C_M,C_D,C_F,C_S,C_B,C_T = (I('線色_基準線'),I('線色_通り芯記号'),I('線色_寸法'),
                                    I('線色_外形線'),I('線色_段差線'),I('線色_面記号枠'),
                                    I('線色_文字'))
-    C_H = I('線色_巾木')
+    C_H, C_K = I('線色_巾木'), I('線色_腰壁')
     TD,TN,TX = F('文字高_寸法'),F('文字高_室名'),F('文字高_通り芯記号')
     fl, fr = ox+WALL_T, ox+L-WALL_T
     # 外形線
@@ -305,6 +310,19 @@ def draw_face(ox, oy, L, H, room, mark, axis, steps, chain, haba=None):
     # 巾木（床から haba の高さに1本）
     if haba:
         line(LY_H,C_H,LT_SOLID, fl,oy+haba, fr,oy+haba)
+    # 腰壁（天端に1本、その 見切り厚 ぶん下に見切り下端線をもう1本、
+    #       見切り下端線と巾木の間に ピッチ ぶんの縦線）
+    if koshi:
+        mig = F('腰壁の見切り厚'); pitch = F('腰壁の縦線ピッチ')
+        top = oy+koshi; bot = top-mig
+        line(LY_K,C_K,LT_SOLID, fl,top, fr,top)
+        line(LY_K,C_K,LT_SOLID, fl,bot, fr,bot)
+        y0 = oy+haba if haba else oy          # 巾木が無ければ床から
+        if pitch > 0 and bot > y0:
+            x = fl+pitch
+            while x < fr-EPS:
+                line(LY_K,C_K,LT_SOLID, x,y0, x,bot)
+                x += pitch
     # 段差線
     for s in steps:
         line(LY_S,C_S,LT_SOLID, ox+s,oy, ox+s,oy+H)
@@ -415,19 +433,21 @@ def main():
         log('    レイヤ%-3s 線%4d本  文字%3d個' % (k, cl.get(k,0), ct.get(k,0)))
     log('')
     log('---- 設定 ----')
-    for k in ('壁芯線レイヤ','室名レイヤ','天井高レイヤ','通り芯レイヤ','巾木レイヤ',
-              '天井高の接頭辞','巾木の接頭辞','作図レイヤグループ'):
+    for k in ('壁芯線レイヤ','室名レイヤ','天井高レイヤ','通り芯レイヤ','巾木レイヤ','腰壁レイヤ',
+              '天井高の接頭辞','巾木の接頭辞','腰壁の接頭辞','作図レイヤグループ'):
         log('  %s = %s' % (k, CFG[k]))
 
     lyW = CFG['壁芯線レイヤ'].lower()
     lyN = CFG['室名レイヤ'].lower()
     lyH = CFG['天井高レイヤ'].lower()
     lyB = CFG['巾木レイヤ'].lower()
+    lyK = CFG['腰壁レイヤ'].lower()
     walls = [l for l in lines if l['ly'] == lyW]
     names = [t for t in texts if t['ly'] == lyN and is_roomname(t['s'])]
     dropped = [t['s'] for t in texts if t['ly'] == lyN and not is_roomname(t['s'])]
     chs   = [t for t in texts if t['ly'] == lyH]
     habas = [t for t in texts if t['ly'] == lyB and CFG['巾木の接頭辞'] in t['s']]
+    koshis = [t for t in texts if t['ly'] == lyK and CFG['腰壁の接頭辞'] in t['s']]
     log('')
     log('---- 抽出 ----')
     log('  壁芯線(レイヤ%s) : %d本' % (CFG['壁芯線レイヤ'], len(walls)))
@@ -439,6 +459,8 @@ def main():
         ' / '.join(t['s'] for t in chs[:20])))
     log('  巾木  (レイヤ%s) : %d個  %s' % (CFG['巾木レイヤ'], len(habas),
         ' / '.join(t['s'] for t in habas[:20]) or '（なし。巾木は描きません）'))
+    log('  腰壁  (レイヤ%s) : %d個  %s' % (CFG['腰壁レイヤ'], len(koshis),
+        ' / '.join(t['s'] for t in koshis[:20]) or '（なし。腰壁は描きません）'))
     msg = []
     if not walls:
         msg.append('壁芯線レイヤ「%s」に線がありません。' % CFG['壁芯線レイヤ'])
@@ -460,6 +482,7 @@ def main():
     xn, yn = axis_names(lines, texts)
     pre  = CFG['天井高の接頭辞']
     preB = CFG['巾木の接頭辞']
+    preK = CFG['腰壁の接頭辞']
 
     rooms = []
     for poly in polys:
@@ -473,23 +496,29 @@ def main():
         # 巾木（室内に「巾木60」の文字があれば、その高さに線を1本引く）
         hb = [t for t in habas if inside(txt_center(t), poly)]
         b = re.sub(r'[^\d.]', '', hb[0]['s'].replace(preB, '')) if hb else ''
-        rooms.append((nm[0]['s'].strip(), float(h), poly, float(b) if b else None))
+        # 腰壁（「腰壁1100」なら天端＋見切り下端＋縦線）
+        kw = [t for t in koshis if inside(txt_center(t), poly)]
+        kv = re.sub(r'[^\d.]', '', kw[0]['s'].replace(preK, '')) if kw else ''
+        rooms.append((nm[0]['s'].strip(), float(h), poly,
+                      float(b) if b else None, float(kv) if kv else None))
 
     for poly in polys:
         n2 = [t['s'] for t in names if inside(txt_center(t), poly)]
         c2 = [t['s'] for t in chs   if inside(txt_center(t), poly)]
-        b2 = [t['s'] for t in habas if inside(txt_center(t), poly)]
-        log('    %8.2f㎡  室名:%-14s 天井高:%-10s 巾木:%-10s %s'
+        b2 = [t['s'] for t in habas  if inside(txt_center(t), poly)]
+        k2 = [t['s'] for t in koshis if inside(txt_center(t), poly)]
+        log('    %8.2f㎡  室名:%-14s 天井高:%-10s 巾木:%-8s 腰壁:%-10s %s'
             % (area(poly)/1e6, '/'.join(n2) or '(なし)', '/'.join(c2) or '(なし)',
-               '/'.join(b2) or '(なし)', '→作図' if (n2 and c2) else '→対象外'))
+               '/'.join(b2) or '(なし)', '/'.join(k2) or '(なし)',
+               '→作図' if (n2 and c2) else '→対象外'))
     if not rooms:
         log('!! 室名と天井高が揃った室が見つかりませんでした。')
         sys.stderr.write('室名と天井高が揃った室が見つかりませんでした。\n')
         write_log(); return 1
 
     # ---- 面の組み立て ----
-    plan = []            # (室名, 天井高, 面記号, 芯々幅, 基準線, 段差, 内訳, 多角形, 面, 巾木)
-    for nm, H, poly, hb in rooms:
+    plan = []      # (室名, 天井高, 面記号, 芯々幅, 基準線, 段差, 内訳, 多角形, 面, 巾木, 腰壁)
+    for nm, H, poly, hb, kw in rooms:
         fs = faces_of(poly)
         for k in range(4):
             if k not in fs: continue
@@ -513,16 +542,17 @@ def main():
                 acc += segs[i]
                 near_side_deeper = (pl[i] > pl[i+1]) == deeper_is_larger
                 steps.append(acc - WALL_T if near_side_deeper else acc + WALL_T)
-            plan.append((nm, H, FACE_MARK[k], L, axis, steps, segs, poly, k, hb))
+            plan.append((nm, H, FACE_MARK[k], L, axis, steps, segs, poly, k, hb, kw))
 
     # ---- 割付 ----
-    total_w = F('用紙幅')*SCALE
+    # 1段に1室（Ａ〜Ｄ）。折り返し幅に入りきらない室だけ段を分ける。
+    total_w = F('折り返し幅')
     GAP_X, GAP_Y = F('面の間隔_横'), F('面の間隔_縦')
     per_room = CFG['室ごとに改行'].strip() in ('する','はい','yes','1')
     x = 0.0; y = 0.0; rowh = 0.0; placed = []
     prev = None
     for item in plan:
-        nm,H,mark,L,axis,steps,segs,poly,k,hb = item
+        nm,H,mark,L,axis,steps,segs,poly,k,hb,kw = item
         w = L + PAD_L + PAD_R
         h = H + PAD_T + PAD_B
         if x > 0 and (x + w > total_w or (per_room and nm != prev)):
@@ -530,8 +560,8 @@ def main():
         placed.append((x + PAD_L, y - h + PAD_B, item))
         x += w + GAP_X; rowh = max(rowh, h); prev = nm
     for ox, oy, item in placed:
-        nm,H,mark,L,axis,steps,segs,poly,k,hb = item
-        draw_face(ox, oy, L, H, nm, mark, axis, steps, segs, hb)
+        nm,H,mark,L,axis,steps,segs,poly,k,hb,kw = item
+        draw_face(ox, oy, L, H, nm, mark, axis, steps, segs, hb, kw)
 
     xs=[];ys=[]
     for e in P:
@@ -557,12 +587,17 @@ def main():
     log('')
     log('---- 作図 ----')
     log('  配置基準点 : %.1f, %.1f' % (ox, oy))
-    log('  全体寸法   : %.0f x %.0f mm（用紙上）'
-        % ((max(xs)-min(xs))/SCALE, (max(ys)-min(ys))/SCALE))
+    pw, ph = (max(xs)-min(xs))/SCALE, (max(ys)-min(ys))/SCALE
+    log('  全体寸法   : %.0f x %.0f mm（用紙上）' % (pw, ph))
+    if pw > F('用紙幅') or ph > F('用紙高'):
+        log('  ※ 用紙 %.0f x %.0f mm に収まりません。1段に1室で並べているためです。'
+            % (F('用紙幅'), F('用紙高')))
+        log('    用紙を大きくするか、tenkaizu_setting.txt の 面の間隔_縦 を詰めてください。')
     log('  出力 %d行 を %s に書き出しました' % (len(out), temp))
     log('  %d室 %d面' % (len({r[0] for r in rooms}), len(plan)))
-    for n, h, _, hb in rooms:
-        log('    %s  CH=%d  巾木=%s' % (n, h, ('%d' % hb) if hb else '(なし)'))
+    for n, h, _, hb, kw in rooms:
+        log('    %s  CH=%d  巾木=%-6s 腰壁=%s'
+            % (n, h, ('%d' % hb) if hb else '(なし)', ('%d' % kw) if kw else '(なし)'))
     write_log()
     sys.stderr.write('%d室 %d面を作図しました\n' % (len({r[0] for r in rooms}), len(plan)))
     return 0
