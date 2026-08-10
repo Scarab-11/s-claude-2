@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """壁芯線から室（閉領域）を検出する試作"""
-import re, math
+import os, sys, re, math
 from collections import defaultdict
 
-DUMP='/root/.claude/uploads/9ed4d5cc-1e7d-598f-9a7c-a24aa8e5dd7a/1f3fbe14-jwc_dumpA.txt'
+# 同じフォルダの平面図ダンプを読む（第1引数で別のダンプも指定できる）
+DUMP=sys.argv[1] if len(sys.argv)>1 else \
+     os.path.join(os.path.dirname(os.path.abspath(__file__)),'jwc_dump_plan.txt')
 WALL_LAYER='f'          # 壁芯レイヤ
 NAME_LAYER='2'          # 室名レイヤ
 CH_LAYER  ='e'          # 天井高レイヤ
