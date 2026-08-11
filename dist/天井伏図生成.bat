@@ -14,8 +14,10 @@ REM
 REM  どの室にどの記号を書くか、どのレイヤを落とすかは
 REM  天伏図ルール.txt で指定します。
 REM
-REM  動作には Ruby が必要です。パスが通っていない場合は
-REM  下の RUBY の行に ruby.exe の場所を書いてください。
+REM  動作には Python 3.8 以上が必要です。
+REM  py ランチャーと python の両方が見つからない場合は、下の
+REM  PYTHON の行に python.exe の場所を直接書いてください。
+REM    例  set "PYTHON=C:\Python311\python.exe"
 REM
 REM  上の制御行の意味（この説明文には井桁記号を書かないこと）
 REM    jww … jww形式で座標ファイルを受け取る
@@ -26,14 +28,21 @@ REM    e   … 制御文字列の終わり
 REM ------------------------------------------------------------
 setlocal
 
-set "RUBY=ruby"
+set "PYTHON="
 
-"%RUBY%" -v >nul 2>&1
-if errorlevel 1 goto :noruby
+REM py ランチャーを先に試す。python.org のインストーラが入れるもので、
+REM 「PATH に追加」にチェックを入れていなくても使えます。
+if not defined PYTHON (
+    py -3 -V >nul 2>&1 && set "PYTHON=py -3"
+)
+if not defined PYTHON (
+    python -V >nul 2>&1 && set "PYTHON=python"
+)
+if not defined PYTHON goto :nopython
 
-"%RUBY%" "%~dp0jww_ceiling_plan.rb" "" "%~dp0天伏図ルール.txt"
+%PYTHON% "%~dp0jww_ceiling_plan.py" "" "%~dp0天伏図ルール.txt"
 goto :eof
 
-:noruby
-echo he Ruby が見つかりません。Ruby をインストールするか、天井伏図生成.bat の RUBY の行に ruby.exe の場所を書いてください。> jwc_temp.txt
+:nopython
+echo he Python が見つかりません。Python をインストールするか、天井伏図生成.bat の PYTHON の行に python.exe の場所を書いてください。> jwc_temp.txt
 goto :eof
