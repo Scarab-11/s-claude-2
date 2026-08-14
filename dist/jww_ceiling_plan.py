@@ -106,7 +106,7 @@ class Rules:
         'SYMBOL_COLOR': 'same',
         # 凡例の書き出し  all = 全部 / used = 使った記号だけ / no = 書かない
         'LEGEND_MODE':  'all',
-        # 凡例の位置  auto = 図の右上 / 例 1200,800 (図寸mm 絶対座標)
+        # 凡例の位置  auto = 図の右上 / 例 12000,8000 (図面の座標＝実寸mm)
         'LEGEND_POS':   'auto',
         'LEGEND_W1':    '12',      # 記号欄の最小幅(図寸mm)
         'LEGEND_W2':    '70',      # 仕上欄の最小幅(図寸mm)
@@ -117,6 +117,8 @@ class Rules:
         'LEGEND_TITLE': '仕上表',
         # 文字データの解釈  auto / rel(長さ成分) / abs(終点座標)
         'CHFORMAT':     'auto',
+        # 図寸mm を座標値に直す倍率  auto = hs(縮尺の分母)を使う / 例 100
+        'SCALE':        'auto',
     }
 
     def __init__(self):
@@ -262,7 +264,9 @@ class Rules:
 # --------------------------------------------------------------
 # jwc_temp.txt の読み込み
 #
-#   座標は図寸(mm)。hs が縮尺の分母。
+#   座標は実寸(mm)。1/100 の図面なら 7280 と書いてあれば 7.28m。
+#   一方 hcw/hch/hcd(文字の幅・高さ・間隔)は図寸(紙の上のmm)なので、
+#   座標として使うには hs(縮尺の分母)を掛ける必要がある。
 #   要素
 #     x1 y1 x2 y2                線
 #     x  y                       点
@@ -287,7 +291,7 @@ class Reader:
         self.hcw = [3.0] * 11
         self.hch = [3.0] * 11
         self.hcd = [0.5] * 11
-        self.hs = 1.0
+        self.hs = [1.0] * 16      # レイヤグループ 0-15 ごとの縮尺の分母
         self.hp1 = None
         self.skipped = {}
         self.state = {}
@@ -314,8 +318,8 @@ class Reader:
             self.hch = self.char_table(m.group(1), self.hch)
         elif m := re.match(r'hcd\s+(.*)\Z', s):
             self.hcd = self.char_table(m.group(1), self.hcd)
-        elif m := re.match(rf'hs\s+({NUM})', s):
-            self.hs = float(m.group(1))
+        elif m := re.match(r'hs\s+(.*)\Z', s):
+            self.hs = self.scale_table(m.group(1), self.hs)
         elif m := re.match(rf'hp1\s+({NUM})\s+({NUM})', s):
             self.hp1 = (float(m.group(1)), float(m.group(2)))
 
@@ -329,6 +333,14 @@ class Reader:
         while len(table) < 11:
             table.append(table[-1])
         return table
+
+    @staticmethod
+    def scale_table(text, fallback):
+        """hs はレイヤグループ 0-15 の縮尺の分母が並ぶ。足りない分は先頭で埋める。"""
+        vals = [v for v in (to_num(t) for t in text.split()) if v and v > 0]
+        if not vals:
+            return fallback
+        return (vals + [vals[0]] * 16)[:16]
 
     def read_attribute(self, s):
         # lg0 / ly3 / lc2 / lt1 / cn3 / cn0 4 4 0.5 2 など。
@@ -391,6 +403,12 @@ class Doc:
         self.skipped = reader.skipped
         self.rel_ch = self.detect_ch_format(rules['CHFORMAT'])
 
+    def scale(self, lg):
+        """レイヤグループ lg の縮尺の分母。図寸(mm)にこれを掛けると座標値になる。"""
+        if isinstance(lg, int) and 0 <= lg < len(self.hs):
+            return self.hs[lg]
+        return self.hs[0]
+
     def detect_ch_format(self, mode):
         """文字データ「ch 始点X 始点Y ○ ○ "文字列」の第3・第4フィールドは
         「文字列の長さ成分」と「終点座標」の2通りの説明がある。
@@ -430,6 +448,8 @@ class CeilingPlan:
         self.log = []
         self.used = []            # 実際に置いた記号
         self.counts = {}
+        spec = (rules['SCALE'] or '').strip().lower()
+        self.scale_fixed = None if spec in ('', 'auto') else to_num(spec)
 
     def bump(self, key, n=1):
         self.counts[key] = self.counts.get(key, 0) + n
@@ -479,14 +499,14 @@ class CeilingPlan:
                 # そのままだと Jw_cad 側で文字が引き伸ばされる。
                 self.bump('text_replaced')
                 ux, uy, _ = self.direction(el)
-                w = self.text_width(s, el['cn'])
+                w = self.text_width(s, el['cn'], el['lg'])
                 out.append({**el, 'str': s, 'span': (ux * w, uy * w)})
         return out
 
     # --- 3. 室名の下に天井仕上記号を置く -----------------------
     def place_symbols(self, elements):
         scn = max(1, min(10, self.rules.int('SYMBOL_CN')))
-        dy = self.rules.num('SYMBOL_DY')
+        dy_zusun = self.rules.num('SYMBOL_DY')
         out = []
 
         for el in elements:
@@ -501,7 +521,8 @@ class CeilingPlan:
             # 文字の基準線に対して右まわり 90 度が「下」
             px, py = uy, -ux
 
-            w = self.text_width(sym, scn)
+            dy = dy_zusun * self.scale(el['lg'])
+            w = self.text_width(sym, scn, el['lg'])
             cx = x + ux * length / 2.0 + px * dy
             cy = y + uy * length / 2.0 + py * dy
 
@@ -544,15 +565,25 @@ class CeilingPlan:
         """Shift_JIS で1バイトになる文字。半角英数記号と半角カナ。"""
         return c.isascii() or '｡' <= c <= 'ﾟ'
 
-    def text_width(self, text, cn):
-        """図寸(mm)での文字列の長さ。半角は全角の半分で数える。"""
+    def text_width(self, text, cn, lg=0):
+        """文字列の長さを図面の座標値(実寸mm)で返す。半角は全角の半分で数える。
+
+        hcw/hcd は図寸なので、縮尺の分母を掛けて座標値に直す。これを忘れると
+        1/100 の図面で長さが 1/100 になり、文字が潰れて重なる。
+        """
         if not text:
             return 0.0
         w = self.doc.hcw[cn]
         d = self.doc.hcd[cn]
         han = sum(1 for c in text if self.is_halfwidth(c))
         zen = len(text) - han
-        return w * zen + w / 2.0 * han + d * (len(text) - 1)
+        return (w * zen + w / 2.0 * han + d * (len(text) - 1)) * self.scale(lg)
+
+    def scale(self, lg):
+        """図寸(mm)を図面の座標値に直す倍率。SET SCALE で固定もできる。"""
+        if self.scale_fixed is not None:
+            return self.scale_fixed
+        return self.doc.scale(lg)
 
     def symbol_attr(self, el, scn):
         a = dict(el['attr'])
@@ -632,27 +663,31 @@ class CeilingPlan:
             return []
 
         cn = max(1, min(10, self.rules.int('LEGEND_CN')))
-        rh = self.rules.num('LEGEND_RH')
-        th = self.doc.hch[cn]
-        pad = 2.0
+        lg = self.legend_lg(placed)
+        # 設定はすべて図寸mm。座標に使うので縮尺の分母を掛けておく。
+        s = self.scale(lg)
+        rh = self.rules.num('LEGEND_RH') * s
+        th = self.doc.hch[cn] * s
+        pad = 2.0 * s
 
         # 設定した幅は最小値として扱い、文字がはみ出すときは広げる。
         def fit(strings, minimum):
-            return max(minimum, max(self.text_width(s, cn) for s in strings) + pad * 2)
+            return max(minimum * s,
+                       max(self.text_width(t, cn, lg) for t in strings) + pad * 2)
 
         w1 = fit(['記号'] + [r[0] for r in rows], self.rules.num('LEGEND_W1'))
         w2 = fit([self.rules['LEGEND_TITLE']] + [r[1] for r in rows],
                  self.rules.num('LEGEND_W2'))
         w = w1 + w2
         h = rh * (len(rows) + 1)
-        x0, y0 = self.legend_origin(placed, w, h)
+        x0, y0 = self.legend_origin(placed, w, h, s)
         attr = self.legend_attr()
 
         out = []
 
         def add(type_, nums, text=None):
             out.append({'type': type_, 'nums': nums, 'str': text, 'attr': attr,
-                        'lg': 0, 'ly': 0, 'cn': cn, 'span': None})
+                        'lg': lg, 'ly': 0, 'cn': cn, 'span': None})
 
         # 外枠と罫線
         add('line', [x0, y0, x0 + w, y0])
@@ -675,17 +710,29 @@ class CeilingPlan:
 
         for el in out:
             if el['type'] == 'text':
-                el['span'] = (self.text_width(el['str'], cn), 0.0)
+                el['span'] = (self.text_width(el['str'], cn, lg), 0.0)
         self.counts['legend_rows'] = len(rows)
         return out
 
-    def legend_origin(self, placed, w, h):
+    def legend_lg(self, placed):
+        """仕上表を置くレイヤグループ。縮尺はグループごとに違うので要る。"""
+        spec = self.rules['LEGEND_LAYER']
+        if spec.lower() != 'same' and ':' in spec:
+            g = spec.split(':', 1)[0]
+            if re.fullmatch(r'[0-9a-fA-F]', g):
+                return int(g, 16)
+        # same のときは図の大半が乗っているグループに合わせる。
+        groups = [el['lg'] for el in placed if isinstance(el['lg'], int)]
+        return max(set(groups), key=groups.count) if groups else 0
+
+    def legend_origin(self, placed, w, h, s):
+        # LEGEND_POS は図面の座標(実寸mm)。図とのすき間だけ図寸で持つ。
         pos = self.rules['LEGEND_POS'].strip()
         if pos.lower() != 'auto':
             if m := re.fullmatch(rf'({NUM})\s*,\s*({NUM})', pos):
                 return float(m.group(1)), float(m.group(2)) - h
         _, _, x1, y1 = self.bbox(placed)
-        return x1 + 10.0, y1 - h
+        return x1 + 10.0 * s, y1 - h
 
     def legend_attr(self):
         a = {}
@@ -816,7 +863,8 @@ def write_log(rpath, doc, plan, written):
     lines = [
         f"{APPTITLE}  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f'ルールファイル : {rpath}',
-        f'縮尺           : 1/{fmt(doc.hs)}',
+        f'縮尺           : 1/{fmt(plan.scale(0))}'
+        + ('' if plan.scale_fixed is None else '  (SET SCALE で固定)'),
         f"文字データ書式 : {'rel(長さ成分)' if doc.rel_ch else 'abs(終点座標)'}",
         f'読み込んだ要素 : {len(doc.elements)}',
         f"レイヤで除外   : {c.get('layer_dropped', 0)}",
