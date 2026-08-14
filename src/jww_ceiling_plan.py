@@ -145,6 +145,7 @@ class Rules:
         self.keep = []            # [lg, ly]  None = ワイルドカード
         self.drop = []
         self.rooms = {}           # 正規化した室名 => 記号
+        self.room_bases = {}      # 枝番を取った室名 => 記号
         self.legend = []          # [記号, 説明] 記述順
         self.colors = []          # [(lg, ly), 線番号]
         self.droptext = []        # 正規表現
@@ -153,11 +154,30 @@ class Rules:
         self.settings = dict(self.DEFAULTS)
         self.errors = []
 
+    # 室名の末尾に付く枝番。NFKC 済みなので ① は 1 になっている。
+    BRANCH = re.compile(r'[0-9A-Za-z\-‐ー－_]+\Z')
+
     @classmethod
     def load(cls, path):
         r = cls()
         r.parse(read_cp932(path))
+        r.build_room_bases()
         return r
+
+    def build_room_bases(self):
+        """「倉庫①」「倉庫②」から枝番を取った「倉庫」を引けるようにする。
+
+        図面の室名が「倉庫」だけで、丸数字が別の要素として描かれている
+        ことがあるため。記号が食い違う枝番があるときは、取り違えると
+        まずいので登録しない。
+        """
+        found = {}
+        for name, sym in self.rooms.items():
+            base = self.BRANCH.sub('', name)
+            if not base or base == name or base in self.rooms:
+                continue
+            found.setdefault(base, set()).add(sym)
+        self.room_bases = {b: s.pop() for b, s in found.items() if len(s) == 1}
 
     @staticmethod
     def is_directive(line):
@@ -899,13 +919,14 @@ class CeilingPlan:
         """この文字に置く記号。ROOM に無くても、部屋名レイヤの文字なら
         仮記号を置く。室が増えるたびにルールファイルを直さずに済ませ、
         書き漏らしを図面上で見つけられるようにするため。"""
-        sym = self.lookup_room(el['str'])
+        text = el['str'].strip()
+        # NOROOM は「そもそも室名ではない」の意味なので ROOM より優先する。
+        if not text or any(p.search(text) for p in self.rules.noroom):
+            return None
+        sym = self.lookup_room(text)
         if sym is not None:
             return sym
         if not self.on_room_layer(el):
-            return None
-        text = el['str'].strip()
-        if not text or any(p.search(text) for p in self.rules.noroom):
             return None
         default = self.rules['ROOM_DEFAULT'].strip()
         if not default or default.lower() in ('no', 'off'):
@@ -913,6 +934,16 @@ class CeilingPlan:
         if text not in self.unknown:
             self.unknown.append(text)
         return default
+
+    def similar_rooms(self, text):
+        """惜しい登録を挙げる。「倉庫」に対する「倉庫①」のような取り違えは
+        気づきにくいので、ログで指摘する。"""
+        key = normalize_key(text)
+        if len(key) < 2:
+            return ''
+        near = [k for k in self.rules.rooms
+                if k != key and (k.startswith(key[:2]) or key.startswith(k[:2]))]
+        return ' / '.join(sorted(near)[:4])
 
     def on_room_layer(self, el):
         spec = self.rules['ROOM_LAYER'].strip()
@@ -930,7 +961,11 @@ class CeilingPlan:
         # 「事務室(14.46㎡)」のように後ろに何か付いている場合。
         # 取り違えを避けるため、長い室名から順に見る。
         hits = [k for k in self.rules.rooms if key.startswith(k)]
-        return self.rules.rooms[max(hits, key=len)] if hits else None
+        if hits:
+            return self.rules.rooms[max(hits, key=len)]
+        # 逆に、図面が「倉庫」で登録が「倉庫①」「倉庫②」の場合。
+        # 枝番を取った名前で引く。記号が割れているときは引かない。
+        return self.rules.room_bases.get(key)
 
     def direction(self, el):
         """文字の向き。単位ベクトルと文字列の長さを返す。"""
@@ -1326,7 +1361,11 @@ def write_log(rpath, doc, plan, written):
         lines.append('記号を正しいものに書き換えてください。')
         lines.append('')
         width = max(len(n) for n in plan.unknown)
-        lines += [f'ROOM {n.ljust(width)}  {default}' for n in plan.unknown]
+        for n in plan.unknown:
+            row = f'ROOM {n.ljust(width)}  {default}'
+            if near := plan.similar_rooms(n):
+                row += f'      ← 似た登録があります: {near}'
+            lines.append(row)
     if doc.skipped:
         lines.append('')
         lines.append('対応していない要素があったため、複写されませんでした:')
