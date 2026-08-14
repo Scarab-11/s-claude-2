@@ -333,6 +333,7 @@ class Reader:
         self.hs = [1.0] * 16      # レイヤグループ 0-15 ごとの縮尺の分母
         self.hp1 = None
         self.skipped = {}
+        self.skipped_at = {}      # (lg, ly) => 対応していない要素の数
         self.state = {}
 
     def parse(self, text):
@@ -346,9 +347,22 @@ class Reader:
             el = self.read_element(s)
             if el is not None:
                 self.elements.append(el)
-            elif re.match(r'[a-z]', s):
+            elif self.ATTR_LINE.match(s):
                 self.read_attribute(s)
+            else:
+                self.skip(s)
         return self
+
+    # 属性として扱う行。これ以外の小文字始まりの行(ソリッド sl、
+    # ブロック bl など)は、属性ではなく「対応していない要素」として数える。
+    # 属性のつもりで取り込むと、書き出しのときにそのまま出てしまう。
+    ATTR_LINE = re.compile(r'(?:lg|ly|lc|lt|cn)[0-9a-fA-F]')
+
+    def skip(self, s):
+        key = re.match(r'[A-Za-z]{1,3}|.', s).group(0)
+        self.skipped[key] = self.skipped.get(key, 0) + 1
+        at = (self.layer_no('lg'), self.layer_no('ly'))
+        self.skipped_at[at] = self.skipped_at.get(at, 0) + 1
 
     def read_header(self, s):
         if m := re.match(r'hcw\s+(.*)\Z', s):
@@ -383,9 +397,11 @@ class Reader:
 
     def read_attribute(self, s):
         # lg0 / ly3 / lc2 / lt1 / cn3 / cn0 4 4 0.5 2 など。
-        # 属性名は英字部分だけを見る(番号は行ごと保持する)。
+        # 属性名は先頭2文字だけを見る。ここを [a-z]+ にすると、
+        # レイヤ a〜f の「lyf」が丸ごと属性名になってしまい、
+        # レイヤ番号が変わらないまま次の要素に持ち越されてしまう。
         # 状態は要素ごとに写しを持たせるため、毎回新しい辞書にする。
-        key = re.match(r'[a-z]+', s).group(0)
+        key = s[:2]
         self.state = {**self.state, key: s}
 
     def read_element(self, s):
@@ -403,9 +419,6 @@ class Reader:
             return self.make('line', [float(m.group(i)) for i in range(1, 5)])
         if m := RE_POINT.match(s):
             return self.make('point', [float(m.group(1)), float(m.group(2))])
-        if not re.match(r'[a-z]', s):
-            # 対応していない要素
-            self.skipped[s[:2]] = self.skipped.get(s[:2], 0) + 1
         return None
 
     def make(self, type_, nums, str=None):
@@ -414,10 +427,11 @@ class Reader:
                 'cn': self.cn_no(), 'span': None}
 
     def layer_no(self, key):
+        """lg0〜lgf / ly0〜lyf を 0〜15 にする。a〜f は16進の桁。"""
         line = self.state.get(key)
         if line is None:
             return 0
-        m = re.match(r'[a-z]+([0-9a-fA-F])', line)
+        m = re.fullmatch(r'[a-z]{2}([0-9a-fA-F])', line.strip())
         return int(m.group(1), 16) if m else 0
 
     def cn_no(self):
@@ -440,6 +454,7 @@ class Doc:
         self.hs = reader.hs
         self.hp1 = reader.hp1
         self.skipped = reader.skipped
+        self.skipped_at = reader.skipped_at
         self.rel_ch = self.detect_ch_format(rules['CHFORMAT'])
 
     def scale(self, lg):
@@ -501,7 +516,7 @@ class CeilingPlan:
         if not body:
             raise ValueError('天井伏図にする要素がありません。選択したデータの'
                              f'レイヤは {self.layer_list()} です。'
-                             '天伏図ルール.txt の KEEP / DROP をこの番号に'
+                             '天伏図ルール.txt の KEEP をこの番号に'
                              '合わせてください。')
 
         dx, dy = self.offset(body)
@@ -556,15 +571,18 @@ class CeilingPlan:
                 if math.hypot(el['nums'][2] - el['nums'][0],
                               el['nums'][3] - el['nums'][1]) > EPS]
         if not segs:
-            # 黙って壁線なしにすると原因が分からないので、番号を並べて知らせる。
+            # ここで止めると天井伏図そのものが作られなくなるので、
+            # 壁線だけ諦めてログに理由を残す。
             where = ' '.join(f'{lg:x}:{ly:x}({t["fig"]}本)'
                              for (lg, ly), t in sorted(self.layer_tally().items())
-                             if t['fig'])
-            raise ValueError(
-                f'壁の中心線が見つかりません（SET WALL_FROM {spec}）。'
-                f'線が入っているレイヤは {where} です。天伏図ルール.txt の '
-                'WALL_FROM をこの中の番号に直し、KEEP にも同じ番号を入れて'
-                'ください。壁線が要らないときは SET WALL_FROM off にします。')
+                             if t['fig']) or 'なし'
+            self.log.append('')
+            self.log.append(f'※ 壁線を作れませんでした。SET WALL_FROM {spec} の'
+                            'レイヤに線が 1 本もありません。')
+            self.log.append(f'   線が入っているレイヤ: {where}')
+            self.log.append('   WALL_FROM をこの中の番号に直し、KEEP にも同じ'
+                            '番号を入れてください。')
+            return []
 
         half = width / 2.0
         rects = [self.wall_rect(s, segs, half) for s in segs]
@@ -743,11 +761,15 @@ class CeilingPlan:
         線の長さを見ると、壁の中心線(長い)・基準線(通り芯なので図より長い)・
         建具や柱(短い)の区別がつく。文字の例を見れば部屋名のレイヤが分かる。
         """
+        def blank():
+            return {'fig': 0, 'txt': 0, 'other': 0, 'len': [], 'sample': [],
+                    'lt': {}}
+
         tally = {}
+        for key, n in self.doc.skipped_at.items():
+            tally.setdefault(key, blank())['other'] = n
         for el in self.doc.elements:
-            t = tally.setdefault((el['lg'], el['ly']),
-                                 {'fig': 0, 'txt': 0, 'len': [], 'sample': [],
-                                  'lt': {}})
+            t = tally.setdefault((el['lg'], el['ly']), blank())
             if el['type'] == 'text':
                 t['txt'] += 1
                 if len(t['sample']) < 3 and el['str'].strip():
@@ -767,6 +789,8 @@ class CeilingPlan:
         for (lg, ly), t in sorted(self.layer_tally().items()):
             mark = '残す' if self.rules.keep_layer(lg, ly) else '除外'
             row = f"  {lg:x}:{ly:x}   線 {t['fig']:4d}   文字 {t['txt']:4d}   {mark}"
+            if t['other']:
+                row += f"   ★扱えない要素 {t['other']}"
             if t['lt']:
                 order = sorted(t['lt'].items(), key=lambda kv: -kv[1])
                 row += '   線種 ' + ' '.join(f'{k}x{v}' for k, v in order[:3])
@@ -779,12 +803,17 @@ class CeilingPlan:
             lines.append('')
             lines.append('  線種 2〜4 が一点鎖線・破線です。壁の中心線や基準線は'
                          'ふつうここに入ります。')
+            lines.append('  ★扱えない要素 … ソリッドやブロック図形。そのレイヤの'
+                         '中身は写せません。')
+            lines.append('    Jw_cad の [編集]-[図形分解] でばらすと扱えるように'
+                         'なります。')
         return lines
 
     def layer_list(self):
-        """1行で並べたレイヤ番号。エラーの文面に入れる。"""
-        seen = sorted({(el['lg'], el['ly']) for el in self.doc.elements})
-        return ' '.join(f'{lg:x}:{ly:x}' for lg, ly in seen)
+        """1行で並べたレイヤ番号と要素数。エラーの文面に入れる。"""
+        return ' '.join(f'{lg:x}:{ly:x}({t["fig"] + t["txt"]})'
+                        for (lg, ly), t in sorted(self.layer_tally().items())
+                        if t['fig'] or t['txt'])
 
     # --- 2. 文字の削除と置換 -----------------------------------
     def process_texts(self, elements):
