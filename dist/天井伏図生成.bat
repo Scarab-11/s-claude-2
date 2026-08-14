@@ -1,6 +1,6 @@
 @echo off
 REM #jww
-REM #h0
+REM #h2
 REM #hc 平面図を範囲選択してください（文字を含む）
 REM #1 天井伏図を作図する位置（左下）を指示してください
 REM #e
@@ -21,7 +21,10 @@ REM    例  set "PYTHON=C:\Python311\python.exe"
 REM
 REM  上の制御行の意味（この説明文には井桁記号を書かないこと）
 REM    jww … jww形式で座標ファイルを受け取る
-REM    h0  … 範囲内の図形データを jwc_temp.txt に書き出す
+REM    h2  … 範囲選択させ、範囲内の図形と文字を jwc_temp.txt に
+REM          書き出す。範囲の内外にまたがる線も拾う。
+REM          h0 は「範囲選択をしない」の意味なので使わないこと。
+REM          範囲選択が出ずにいきなり点指示になる。
 REM    hc  … 範囲選択時に表示するメッセージ
 REM    1   … 点を指示させる。指示点は hp1 として渡される
 REM    e   … 制御文字列の終わり
