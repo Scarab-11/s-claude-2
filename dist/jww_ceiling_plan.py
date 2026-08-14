@@ -104,6 +104,14 @@ class Rules:
         'SYMBOL_LAYER': 'same',
         # 記号の線色  same = 室名と同じ / 例 2
         'SYMBOL_COLOR': 'same',
+        # 壁の中心線があるレイヤ  off = 壁線を作らない
+        'WALL_FROM':    '0:0',
+        # 壁の厚さ(実寸mm)
+        'WALL_WIDTH':   '120',
+        # 壁線を書くレイヤ  same = 中心線と同じ
+        'WALL_LAYER':   'same',
+        # 壁線の線色
+        'WALL_COLOR':   '5',
         # 記号を四角の枠で囲む  on / off
         'SYMBOL_BOX':   'on',
         # 枠と文字とのすき間(図寸mm)
@@ -262,6 +270,15 @@ class Rules:
         if self.whitelist:
             return self.match_any(self.keep, lg, ly)
         return self['DEFAULT'].lower() != 'drop'
+
+    @classmethod
+    def layer_spec(cls, spec):
+        """SET に書いた「0:0」「*:5」「3」を [lg, ly] にする。"""
+        spec = (spec or '').strip()
+        if not spec:
+            return None
+        lg, ly = spec.split(':', 1) if ':' in spec else ('*', spec)
+        return (cls.parse_layer_no(lg), cls.parse_layer_no(ly))
 
     @staticmethod
     def match_any(rules, lg, ly):
@@ -465,7 +482,7 @@ class CeilingPlan:
     def build(self):
         kept = self.filter_layers(self.doc.elements)
         kept = self.process_texts(kept)
-        body = kept + self.place_symbols(kept)
+        body = kept + self.make_walls(kept) + self.place_symbols(kept)
         if not body:
             raise ValueError('天井伏図にする要素がありません。選択したデータの'
                              f'レイヤは {self.layer_list()} です。'
@@ -485,6 +502,202 @@ class CeilingPlan:
             else:
                 self.bump('layer_dropped')
         return kept
+
+    # --- 1b. 壁の中心線から壁線をつくる ------------------------
+    #
+    #   壁を「中心線を軸とする長方形」の集まりと考え、その集まりの
+    #   外周だけを描く。長方形の内側に入った線は落とすので、
+    #   交差部や T 字部で線が突き抜けたり、角に隙間ができたりしない。
+    # -----------------------------------------------------------
+    WALL_TOL = 0.01           # 内側判定のあそび(実寸mm)
+    WALL_JOIN = 1.0           # 中心線どうしが取り付いているとみなす距離(実寸mm)
+    WALL_MIN = 0.5            # これより短い切れ端は捨てる(実寸mm)
+
+    def make_walls(self, elements):
+        spec = self.rules['WALL_FROM'].strip()
+        width = self.rules.num('WALL_WIDTH')
+        target = Rules.layer_spec(spec)
+        if spec.lower() in ('off', 'no') or width <= 0 or target is None:
+            return []
+
+        src = [el for el in elements if el['type'] == 'line'
+               and Rules.match_any([target], el['lg'], el['ly'])]
+        segs = [list(el['nums'][:4]) for el in src
+                if math.hypot(el['nums'][2] - el['nums'][0],
+                              el['nums'][3] - el['nums'][1]) > EPS]
+        if not segs:
+            return []
+
+        half = width / 2.0
+        rects = [self.wall_rect(s, segs, half) for s in segs]
+        pieces = []
+        for i, r in enumerate(rects):
+            for p, q in self.rect_edges(r):
+                pieces += self.trim_edge(p, q, rects, i)
+        pieces = self.merge_collinear(pieces)
+
+        attr = self.wall_attr(src[0])
+        lg, ly = self.wall_layer(src[0])
+        out = [{'type': 'line', 'nums': [p[0], p[1], q[0], q[1]], 'str': None,
+                'attr': attr, 'lg': lg, 'ly': ly, 'cn': src[0]['cn'],
+                'span': None} for p, q in pieces]
+        self.bump('walls', len(out))
+        return out
+
+    @classmethod
+    def wall_rect(cls, seg, segs, half):
+        """中心線を長方形にする。他の線が取り付く端は、角を塞ぐため half 伸ばす。"""
+        x1, y1, x2, y2 = seg
+        length = math.hypot(x2 - x1, y2 - y1)
+        ux, uy = (x2 - x1) / length, (y2 - y1) / length
+        if cls.joined(seg, (x1, y1), segs):
+            x1, y1 = x1 - ux * half, y1 - uy * half
+        if cls.joined(seg, (x2, y2), segs):
+            x2, y2 = x2 + ux * half, y2 + uy * half
+        return (x1, y1, x2, y2, half)
+
+    @classmethod
+    def joined(cls, seg, pt, segs):
+        return any(other is not seg and cls.point_seg_dist(pt, other) <= cls.WALL_JOIN
+                   for other in segs)
+
+    @staticmethod
+    def point_seg_dist(pt, seg):
+        x1, y1, x2, y2 = seg
+        dx, dy = x2 - x1, y2 - y1
+        d2 = dx * dx + dy * dy
+        if d2 < EPS:
+            return math.hypot(pt[0] - x1, pt[1] - y1)
+        t = ((pt[0] - x1) * dx + (pt[1] - y1) * dy) / d2
+        t = max(0.0, min(1.0, t))
+        return math.hypot(pt[0] - (x1 + t * dx), pt[1] - (y1 + t * dy))
+
+    @staticmethod
+    def rect_edges(rect):
+        x1, y1, x2, y2, half = rect
+        length = math.hypot(x2 - x1, y2 - y1)
+        ux, uy = (x2 - x1) / length, (y2 - y1) / length
+        nx, ny = -uy * half, ux * half
+        c = [(x1 + nx, y1 + ny), (x2 + nx, y2 + ny),
+             (x2 - nx, y2 - ny), (x1 - nx, y1 - ny)]
+        return [(c[i], c[(i + 1) % 4]) for i in range(4)]
+
+    @classmethod
+    def trim_edge(cls, p, q, rects, skip):
+        length = math.hypot(q[0] - p[0], q[1] - p[1])
+        if length < EPS:
+            return []
+        # 内側判定では長方形を tol だけ小さく見ているので、隠れる範囲は
+        # その分だけ広げ直す。しないと端が tol だけはみ出して残る。
+        margin = cls.WALL_TOL / length
+        blocked = []
+        for j, r in enumerate(rects):
+            if j == skip:
+                continue
+            span = cls.clip_to_rect(p, q, r)
+            if span:
+                blocked.append((span[0] - margin, span[1] + margin))
+        return cls.subtract(p, q, blocked)
+
+    @classmethod
+    def clip_to_rect(cls, p, q, rect):
+        """線分 pq のうち、長方形の内側に入っている範囲を [0,1] の媒介変数で返す。"""
+        x1, y1, x2, y2, half = rect
+        length = math.hypot(x2 - x1, y2 - y1)
+        tol = cls.WALL_TOL
+        if length <= tol * 2 or half <= tol:
+            return None
+        ux, uy = (x2 - x1) / length, (y2 - y1) / length
+
+        def local(pt):
+            dx, dy = pt[0] - x1, pt[1] - y1
+            return (dx * ux + dy * uy, -dx * uy + dy * ux)
+
+        (u0, v0), (u1, v1) = local(p), local(q)
+        lo, hi = 0.0, 1.0
+        for a, d, mn, mx in ((u0, u1 - u0, tol, length - tol),
+                             (v0, v1 - v0, -half + tol, half - tol)):
+            if abs(d) < EPS:
+                if a < mn or a > mx:
+                    return None
+                continue
+            t0, t1 = (mn - a) / d, (mx - a) / d
+            lo, hi = max(lo, min(t0, t1)), min(hi, max(t0, t1))
+            if lo >= hi:
+                return None
+        return (lo, hi) if hi - lo > EPS else None
+
+    @staticmethod
+    def subtract(p, q, blocked):
+        """線分 pq から、隠れる範囲を差し引いて残りを返す。"""
+        keep, cur = [], 0.0
+        for a, b in sorted(blocked):
+            if a > cur:
+                keep.append((cur, min(a, 1.0)))
+            cur = max(cur, b)
+            if cur >= 1.0:
+                break
+        if cur < 1.0:
+            keep.append((cur, 1.0))
+
+        def at(t):
+            return (p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t)
+
+        length = math.hypot(q[0] - p[0], q[1] - p[1])
+        return [(at(a), at(b)) for a, b in keep
+                if (b - a) * length > CeilingPlan.WALL_MIN]
+
+    @classmethod
+    def merge_collinear(cls, pieces):
+        """同じ直線に乗る切れ端をつなぐ。長い壁面が細切れのまま出るのを防ぐ。"""
+        buckets = {}
+        for p, q in pieces:
+            dx, dy = q[0] - p[0], q[1] - p[1]
+            length = math.hypot(dx, dy)
+            if length <= cls.WALL_MIN:
+                continue
+            ux, uy = dx / length, dy / length
+            if ux < -EPS or (abs(ux) < EPS and uy < 0):   # 向きをそろえる
+                ux, uy = -ux, -uy
+            c = -uy * p[0] + ux * p[1]
+            key = (round(ux, 9), round(uy, 9), round(c, 3))
+            t = sorted((ux * p[0] + uy * p[1], ux * q[0] + uy * q[1]))
+            buckets.setdefault(key, []).append(tuple(t))
+
+        out = []
+        for (ux, uy, c), spans in buckets.items():
+            t0, t1 = None, None
+            for a, b in sorted(spans):
+                if t0 is None:
+                    t0, t1 = a, b
+                elif a <= t1 + cls.WALL_MIN:
+                    t1 = max(t1, b)
+                else:
+                    out.append((t0, t1, ux, uy, c))
+                    t0, t1 = a, b
+            if t0 is not None:
+                out.append((t0, t1, ux, uy, c))
+
+        def at(t, ux, uy, c):
+            return (ux * t - uy * c, uy * t + ux * c)
+
+        return [(at(t0, ux, uy, c), at(t1, ux, uy, c))
+                for t0, t1, ux, uy, c in out]
+
+    def wall_layer(self, src):
+        spec = Rules.layer_spec(self.rules['WALL_LAYER'])
+        if self.rules['WALL_LAYER'].strip().lower() == 'same' or spec is None:
+            return src['lg'], src['ly']
+        lg, ly = spec
+        return (src['lg'] if lg is None else lg, src['ly'] if ly is None else ly)
+
+    def wall_attr(self, src):
+        a = {'lt': 'lt1'}
+        lg, ly = self.wall_layer(src)
+        a['lg'], a['ly'] = f'lg{lg:x}', f'ly{ly:x}'
+        if self.rules['WALL_COLOR'].lower() != 'same':
+            a['lc'] = f"lc{self.rules['WALL_COLOR']}"
+        return a
 
     def layer_summary(self):
         """選択したデータのレイヤ別内訳。KEEP / DROP に書く番号はこれで調べる。"""
@@ -942,6 +1155,7 @@ def write_log(rpath, doc, plan, written):
         f"文字データ書式 : {'rel(長さ成分)' if doc.rel_ch else 'abs(終点座標)'}",
         f'読み込んだ要素 : {len(doc.elements)}',
         f"レイヤで除外   : {c.get('layer_dropped', 0)}",
+        f"作った壁線     : {c.get('walls', 0)}",
         f"文字を削除     : {c.get('text_dropped', 0)}",
         f"文字を置換     : {c.get('text_replaced', 0)}",
         f"置いた記号     : {c.get('symbols', 0)}",
