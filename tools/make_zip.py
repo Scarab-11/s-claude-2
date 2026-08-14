@@ -27,6 +27,7 @@ FIXED_DATE = (2026, 1, 1, 0, 0, 0)
 PACKAGES = {
     'jww_ceiling_plan.zip': ('天井伏図生成', [
         '天井伏図生成.bat',
+        'レイヤ調査.bat',
         'jww_ceiling_plan.py',
         '天伏図ルール.txt',
         '使い方_天井伏図生成.txt',

@@ -526,7 +526,15 @@ class CeilingPlan:
                 if math.hypot(el['nums'][2] - el['nums'][0],
                               el['nums'][3] - el['nums'][1]) > EPS]
         if not segs:
-            return []
+            # 黙って壁線なしにすると原因が分からないので、番号を並べて知らせる。
+            where = ' '.join(f'{lg:x}:{ly:x}({t["fig"]}本)'
+                             for (lg, ly), t in sorted(self.layer_tally().items())
+                             if t['fig'])
+            raise ValueError(
+                f'壁の中心線が見つかりません（SET WALL_FROM {spec}）。'
+                f'線が入っているレイヤは {where} です。天伏図ルール.txt の '
+                'WALL_FROM をこの中の番号に直し、KEEP にも同じ番号を入れて'
+                'ください。壁線が要らないときは SET WALL_FROM off にします。')
 
         half = width / 2.0
         rects = [self.wall_rect(s, segs, half) for s in segs]
@@ -699,16 +707,38 @@ class CeilingPlan:
             a['lc'] = f"lc{self.rules['WALL_COLOR']}"
         return a
 
-    def layer_summary(self):
-        """選択したデータのレイヤ別内訳。KEEP / DROP に書く番号はこれで調べる。"""
+    def layer_tally(self):
+        """レイヤごとに 線の数 / 文字の数 / 線の長さの幅 / 文字の例 を集める。
+
+        線の長さを見ると、壁の中心線(長い)・基準線(通り芯なので図より長い)・
+        建具や柱(短い)の区別がつく。文字の例を見れば部屋名のレイヤが分かる。
+        """
         tally = {}
         for el in self.doc.elements:
-            t = tally.setdefault((el['lg'], el['ly']), [0, 0])
-            t[1 if el['type'] == 'text' else 0] += 1
+            t = tally.setdefault((el['lg'], el['ly']),
+                                 {'fig': 0, 'txt': 0, 'len': [], 'sample': []})
+            if el['type'] == 'text':
+                t['txt'] += 1
+                if len(t['sample']) < 3 and el['str'].strip():
+                    t['sample'].append(el['str'].strip())
+            else:
+                t['fig'] += 1
+                if el['type'] == 'line':
+                    n = el['nums']
+                    t['len'].append(math.hypot(n[2] - n[0], n[3] - n[1]))
+        return tally
+
+    def layer_summary(self):
+        """選択したデータのレイヤ別内訳。KEEP / DROP に書く番号はこれで調べる。"""
         lines = []
-        for (lg, ly), (fig, txt) in sorted(tally.items()):
+        for (lg, ly), t in sorted(self.layer_tally().items()):
             mark = '残す' if self.rules.keep_layer(lg, ly) else '除外'
-            lines.append(f'  {lg:x}:{ly:x}   線・円 {fig:4d}   文字 {txt:4d}   {mark}')
+            row = f"  {lg:x}:{ly:x}   線 {t['fig']:4d}   文字 {t['txt']:4d}   {mark}"
+            if t['len']:
+                row += f"   線の長さ {fmt(min(t['len']))}〜{fmt(max(t['len']))}"
+            if t['sample']:
+                row += f"   文字の例 {' / '.join(t['sample'])}"
+            lines.append(row)
         return lines
 
     def layer_list(self):
@@ -1130,6 +1160,13 @@ def main():
 
     doc = Doc(reader, rules)
     plan = CeilingPlan(doc, rules)
+
+    if '--layers' in sys.argv:
+        # レイヤ調査だけして終わる。作図はしない。
+        write_log(rpath, doc, plan, 0)
+        abort_with(temp, 'レイヤ別の内訳を jww_ceiling_plan.log に'
+                         '書き出しました。メモ帳で開きます。')
+
     try:
         elements = plan.build()
     except ValueError as e:
