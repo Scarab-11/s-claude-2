@@ -580,6 +580,9 @@ class CeilingPlan:
             self.log.append(f'※ 壁線を作れませんでした。SET WALL_FROM {spec} の'
                             'レイヤに線が 1 本もありません。')
             self.log.append(f'   線が入っているレイヤ: {where}')
+            if hint := self.dashed_layers():
+                self.log.append(f'   このうち一点鎖線が多いのは {hint} です。'
+                                '壁の中心線はたいていこれです。')
             self.log.append('   WALL_FROM をこの中の番号に直し、KEEP にも同じ'
                             '番号を入れてください。')
             return []
@@ -801,13 +804,22 @@ class CeilingPlan:
             lines.append(row)
         if lines:
             lines.append('')
-            lines.append('  線種 2〜4 が一点鎖線・破線です。壁の中心線や基準線は'
-                         'ふつうここに入ります。')
+            lines.append('  線種 1=実線 2〜4=点線 5〜6=一点鎖線 7〜8=二点鎖線。'
+                         '壁の中心線や基準線は 5〜8 に入ります。')
             lines.append('  ★扱えない要素 … ソリッドやブロック図形。そのレイヤの'
                          '中身は写せません。')
             lines.append('    Jw_cad の [編集]-[図形分解] でばらすと扱えるように'
                          'なります。')
         return lines
+
+    def dashed_layers(self):
+        """鎖線(線種5〜8)が半分以上のレイヤ。壁の中心線・基準線の候補。"""
+        out = []
+        for (lg, ly), t in sorted(self.layer_tally().items()):
+            dashed = sum(v for k, v in t['lt'].items() if k in '5678')
+            if t['fig'] and dashed * 2 > t['fig']:
+                out.append(f'{lg:x}:{ly:x}')
+        return ' '.join(out)
 
     def layer_list(self):
         """1行で並べたレイヤ番号と要素数。エラーの文面に入れる。"""
