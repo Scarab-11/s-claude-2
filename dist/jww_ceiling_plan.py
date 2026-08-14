@@ -1093,33 +1093,41 @@ class CeilingPlan:
     def cells_by_row(self, layer, name_cells):
         """室名セルごとに、その行の右側にある文字をつないで返す。
 
-        行の高さは表によって違う（2行書きの行と1行の行が混ざる）ので、
-        帯の幅を決め打ちにせず、いちばん近い室名セルの行に振り分ける。
-        また、右側かどうかは文字の「書き出し位置」で見る。文字の末尾で
-        見ると、長い室名が欄からはみ出したときに右の欄を取りこぼす。
+        室名の欄より右にあるものだけを仕上とみなす。欄の境目は、室名
+        セルの書き出し位置のいちばん右で決める。いちばん左で決めると、
+        欄の中で中央寄せされた室名が、自分自身の仕上として拾われる。
+
+        行の区切りは、室名の欄にある文字を全部「行の目印」として使う。
+        図面に無い室が表に載っていることがあり、その行を目印にしないと、
+        隣の行の仕上まで一緒に取り込んでしまう。
         """
         if not name_cells:
             return {}
         margin = self.doc.hcw[3] * self.scale(layer[0])   # 1文字分だけ余裕を見る
-        left = min(el['nums'][0] for el in name_cells)
-        rows = sorted(((el['nums'][1], el) for el in name_cells),
-                      key=lambda t: -t[0])              # 上から下へ
+        xs = [el['nums'][0] for el in name_cells]
+        lo, hi = min(xs) - margin, max(xs) + margin
+
+        # 室名の欄にある文字＝行の目印。表の見出しや、図面に無い室も含む。
+        anchors = [el for el in self.doc.elements
+                   if el['type'] == 'text' and (el['lg'], el['ly']) == layer
+                   and lo <= el['nums'][0] <= hi and el['str'].strip()]
+        rows = sorted(((el['nums'][1], el) for el in anchors), key=lambda t: -t[0])
         bounds = self.row_bounds([y for y, _ in rows])
-        found = {id(el): [] for el in name_cells}
+        found = {id(el): [] for el in anchors}
 
         for other in self.doc.elements:
             if other['type'] != 'text' or (other['lg'], other['ly']) != layer:
                 continue
             ox, oy = other['nums'][0], other['nums'][1]
-            if ox < left + margin:
-                continue          # 室名の欄より左（用途区分など）は見ない
+            if ox <= hi:
+                continue          # 室名の欄と、それより左（用途区分など）
             s = other['str'].strip()
             if not s or re.fullmatch(r'[\d,.\-〜~ 　]+', s):
                 continue          # 天井高などの数字だけの欄は仕上ではない
             for (top, bottom), (_, el) in zip(bounds, rows):
                 if bottom <= oy < top:
                     found[id(el)].append((-oy, ox, s))
-                    break         # 表の外（見出しなど）はどの行にも入らない
+                    break         # 表の外（表題など）はどの行にも入らない
 
         return {k: ' '.join(s for _, _, s in sorted(v)) for k, v in found.items()}
 

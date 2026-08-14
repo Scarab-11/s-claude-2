@@ -81,6 +81,68 @@ def plan_2f(with_table=True):
     return out
 
 
+# 3枚目の図面を模したもの。用途区分の欄が左にあり、室名は欄の中で
+# 中央寄せ（書き出し位置がまちまち）。表が2つに分かれていて、図面に
+# 無い室の行も混ざっている。
+_ROOMS_3F = [('正面玄関', 1000, 6000), ('事務室', 4000, 6000), ('多目的室', 7000, 6000),
+             ('厨房・食堂', 10000, 6000), ('救急消毒室', 13000, 6000),
+             ('洗面・洗濯室', 1000, 3000), ('更衣室', 4000, 3000), ('男子WC', 7000, 3000),
+             ('廊下', 10000, 3000), ('浴室', 13000, 3000), ('車庫', 16000, 3000)]
+# (区分, 室名, 天井の行, 天井高)。室名の書き出し位置は名前の長さで変える
+_TABLE_3A = [('1階', '正面玄関', ['軽天下地', '岩綿吸音板t=9.5'], '2,700'),
+             ('', '事務室', ['軽天下地', '岩綿吸音板t=9.5'], '2,700'),
+             ('', '更衣室', ['軽天下地', '化粧石膏ﾎﾞｰﾄﾞt=9.5貼'], '2,500'),
+             ('', '多目的室', ['軽天下地', '岩綿吸音板t=9.5'], '2,700'),
+             ('', '厨房・食堂', ['軽天下地', '岩綿吸音板t=9.5'], '2,500'),
+             ('', '裏玄関', ['軽天下地', '化粧石膏ﾎﾞｰﾄﾞt=9.5貼'], '2,500'),  # 図面に無い
+             ('', '廊下', ['軽天下地', '化粧石膏ﾎﾞｰﾄﾞt=9.5貼'], '2,500'),
+             ('', '男子WC', ['軽天下地', '化粧石膏ﾎﾞｰﾄﾞt=9.5貼'], '2,500')]
+_TABLE_3B = [('2階', '浴室', ['軽天下地', '化粧石膏ﾎﾞｰﾄﾞt=9.5貼'], '2,500'),
+             ('', '洗面・洗濯室', ['軽天下地', '化粧石膏ﾎﾞｰﾄﾞt=9.5貼'], '2,500'),
+             ('', '救急消毒室', ['軽天下地', 'ｹｲ酸ｶﾙｼｳﾑ板t=6.0 目透かし貼りEP-G'], '2,500'),
+             ('', '車庫', ['木毛ｾﾒﾝﾄ板表し'], ''),
+             ('', 'ﾘﾈﾝ庫', ['軽天下地', '化粧石膏ﾎﾞｰﾄﾞt=9.5貼'], '2,500')]  # 図面に無い
+
+
+def _schedule(rows, top, title):
+    """概要表を 1 つ書き出す。室名は欄の中で中央寄せにする。"""
+    out = f'ch -20000 {top + 900} 1600 0 "{title}\n'
+    out += (f'ch -19000 {top + 300} 800 0 "区　分\n'
+            f'ch -16000 {top + 300} 800 0 "室　名\n'
+            f'ch -12000 {top + 300} 800 0 "天　井\n'
+            f'ch -3000 {top + 300} 1000 0 "天井高\n')
+    y = top - 400
+    for zone, name, finish, height in rows:
+        if zone:
+            out += f'ch -19000 {y} 600 0 "{zone}\n'
+        # 中央寄せ: 短い室名ほど右から始まる
+        x = -16000 + (6 - min(len(name), 6)) * 150
+        out += f'ch {x} {y} {len(name) * 300} 0 "{name}\n'
+        if len(finish) == 2:
+            out += f'ch -12000 {y + 150} 4000 0 "{finish[0]}\n'
+            out += f'ch -12000 {y - 150} 4000 0 "{finish[1]}\n'
+        else:
+            out += f'ch -12000 {y} 4000 0 "{finish[0]}\n'
+        if height:
+            out += f'ch -3000 {y} 600 0 "{height}\n'
+        y -= 700
+    return out, y
+
+
+def plan_3f():
+    out = PLAN_1F.split('#\n')[0] + '#\n'
+    out += 'lg0\nlyf\nlc2\nlt5\n'
+    out += '0 0 18000 0\n18000 0 18000 9000\n18000 9000 0 9000\n0 9000 0 0\n'
+    out += '0 4500 18000 4500\n'
+    out += 'ly2\nlc2\nlt1\ncn3\n'
+    for name, x, y in _ROOMS_3F:
+        out += f'ch {x} {y} {len(name) * 300} 0 "{name}\n'
+    out += 'ly9\nlc2\nlt1\ncn3\n'
+    a, y = _schedule(_TABLE_3A, 20000, '内部仕上概要表')
+    b, _ = _schedule(_TABLE_3B, y - 2000, '内部仕上概要表')
+    return out + a + b
+
+
 def run(plan, rules=RULES):
     """外部変形を 1 回走らせて (終了コード, 書き出し, ログ) を返す。"""
     with tempfile.TemporaryDirectory() as work:
@@ -332,6 +394,45 @@ def _():
     assert rows, out[:200]
     # 天井欄が空の UB1616 も、室名が入って空行にならない
     assert '（UB1616）' in out, '仕上が読めない記号の行が空になっている'
+
+
+@case('記号: 室名が仕上の文字に混ざらない')
+def _():
+    rc, out, log, _ = run(plan_3f())
+    assert rc == 0, log
+    body = log.split('室名と記号の対応')[1].split('\n\n')[0]
+    finishes = re.findall(r'仕上表: (.+)$', body, re.M)
+    assert finishes, body
+    for room in ('正面玄関', '事務室', '多目的室', '厨房・食堂', '救急消毒室',
+                 '洗面・洗濯室', '更衣室', '男子WC', '廊下', '浴室', '車庫'):
+        for f in finishes:
+            assert room not in f, f'仕上に室名が入っている: {room} / {f}'
+
+
+@case('記号: 図面に無い室の行を巻き込まない')
+def _():
+    rc, out, log, _ = run(plan_3f())
+    body = log.split('室名と記号の対応')[1].split('\n\n')[0]
+    for ghost in ('裏玄関', 'ﾘﾈﾝ庫'):
+        assert ghost not in body, f'表にしか無い室が混ざっている: {ghost}'
+
+
+@case('記号: 表が2つに分かれていても読む')
+def _():
+    rc, out, log, _ = run(plan_3f())
+    body = log.split('室名と記号の対応')[1].split('\n\n')[0]
+    # 上の表の「正面玄関」も、下の表の「車庫」も読めていること
+    assert re.search(r'正面玄関\s+\S+\s+レイヤ \S+\s+仕上表:', body), body
+    assert re.search(r'車庫\s+\S+\s+レイヤ \S+\s+仕上表:', body), body
+
+
+@case('記号: 中央寄せの室名でも仕上を取りこぼさない')
+def _():
+    rc, out, log, _ = run(plan_3f())
+    body = log.split('室名と記号の対応')[1].split('\n\n')[0]
+    lines = [l for l in body.splitlines() if l.strip()]
+    blank = [l for l in lines if '仕上表:' not in l and '同じ天井仕上' not in l]
+    assert not blank, f'仕上が読めていない室がある: {blank}'
 
 
 @case('記号: NOROOM は ROOM より強い')
