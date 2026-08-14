@@ -111,7 +111,13 @@ class Rules:
         # 室名の基準線から記号の基準線までの距離(図寸mm)
         'SYMBOL_DY':    '4.0',
         # 記号を書くレイヤ  same = 室名と同じ / 例 0:5
+        # LAYER_PER_SYMBOL が on のときは、ここが C-1 のレイヤになり、
+        # C-2 以降は 1 つずつ後ろのレイヤに入る。
         'SYMBOL_LAYER': 'same',
+        # 記号(天井仕上)ごとにレイヤを分ける  on / off
+        'LAYER_PER_SYMBOL': 'on',
+        # 記号ごとに使うレイヤを並べて指定する  空なら SYMBOL_LAYER から順に
+        'SYMBOL_LAYERS': '',
         # 記号の線色  same = 室名と同じ / 例 2
         'SYMBOL_COLOR': 'same',
         # 壁の中心線があるレイヤ  off = 壁線を作らない
@@ -535,6 +541,7 @@ class CeilingPlan:
         self.used = []            # 実際に置いた記号
         self.unknown = []         # ROOM に無かった室名
         self.assign = {}          # 室名 => 記号
+        self.symbol_layers = {}   # 記号 => (レイヤグループ, レイヤ)
         self.auto_legend = []     # 自動で作った仕上表の行
         self.assign_note = []     # ログ用の内訳
         self.counts = {}
@@ -955,6 +962,58 @@ class CeilingPlan:
             self.auto_legend.append((sym, finish or f'（{display[key]}）'))
             self.unknown.append(display[key])
 
+        self.build_symbol_layers()
+
+    def build_symbol_layers(self):
+        """記号(天井仕上)ごとにレイヤを割り当てる。
+
+        C-1 を SYMBOL_LAYER のレイヤに置き、C-2 以降は 1 つずつ後ろの
+        レイヤへ。仕上ごとに表示・非表示を切り替えたり、印刷を分けたり
+        できるようにするため。
+        """
+        self.symbol_layers = {}
+        if self.rules['LAYER_PER_SYMBOL'].lower() not in ('on', 'yes', '1'):
+            return
+        order = []
+        for key in self.assign:
+            sym = self.assign[key]
+            if sym not in order:
+                order.append(sym)
+        # C-1、C-2 … と番号順に並べる。並びが飛んでも順番は保つ。
+        order.sort(key=lambda s: (int(m.group(1)) if (m := re.search(r'(\d+)', s))
+                                  else 9999, s))
+        slots = self.symbol_layer_slots(len(order))
+        if not slots:
+            return
+        for i, sym in enumerate(order):
+            self.symbol_layers[sym] = slots[min(i, len(slots) - 1)]
+        if len(order) > len(slots):
+            self.log.append('')
+            self.log.append(f'※ 記号が {len(order)} 種ありますが、使えるレイヤが '
+                            f'{len(slots)} しかありません。あふれた分は'
+                            '最後のレイヤにまとめました。')
+            self.log.append('   SET SYMBOL_LAYERS にレイヤを並べて指定するか、'
+                            'SET SYMBOL_LAYER をもっと若い番号にしてください。')
+
+    def symbol_layer_slots(self, want):
+        """記号ごとに使うレイヤの並び。
+
+        SYMBOL_LAYERS に書いてあればその順に使う。図面の空きレイヤが
+        飛び飛びのときは、こちらで並べた方が確実。
+        書いていなければ SYMBOL_LAYER から後ろへ順に取る。
+        """
+        listed = [Rules.layer_spec(t)
+                  for t in self.rules['SYMBOL_LAYERS'].split()]
+        listed = [(lg, ly) for spec in listed if spec
+                  for lg, ly in [spec] if ly is not None]
+        if listed:
+            return listed
+        base = Rules.layer_spec(self.rules['SYMBOL_LAYER'])
+        if base is None or base[1] is None:
+            return []             # same のときは分けようがない
+        lg, ly = base
+        return [(lg, n) for n in range(ly, min(ly + want, 16))]
+
     def next_symbol_no(self, prefix):
         """空いている番号の先頭。ルールに書いた記号とぶつからないようにする。"""
         used = [s for s, _ in self.rules.legend] + list(self.rules.rooms.values())
@@ -1105,10 +1164,12 @@ class CeilingPlan:
             cy = y + uy * length / 2.0 + py * dy
 
             bx, by = cx - ux * w / 2.0, cy - uy * w / 2.0
-            out += self.symbol_box(el, scn, bx, by, w, ux, uy)
+            lg, ly = self.symbol_layers.get(sym, (el['lg'], el['ly']))
+            out += self.symbol_box(el, scn, bx, by, w, ux, uy, sym)
             out.append({'type': 'text', 'nums': [bx, by, 0, 0],
-                        'str': sym, 'attr': self.symbol_attr(el, scn),
-                        'lg': el['lg'], 'ly': el['ly'], 'cn': scn,
+                        'str': sym, 'attr': self.symbol_attr(el, scn, sym),
+                        'lg': lg if lg is not None else el['lg'],
+                        'ly': ly, 'cn': scn,
                         'span': (ux * w, uy * w)})
             if sym not in self.used:
                 self.used.append(sym)
@@ -1209,7 +1270,7 @@ class CeilingPlan:
             return self.scale_fixed
         return self.doc.scale(lg)
 
-    def symbol_box(self, el, scn, bx, by, w, ux, uy):
+    def symbol_box(self, el, scn, bx, by, w, ux, uy, sym=None):
         """記号を囲む四角。文字が傾いていれば枠も一緒に傾ける。
 
         (bx, by) は文字の左下。文字の並ぶ向きが (ux, uy)、
@@ -1220,35 +1281,42 @@ class CeilingPlan:
         s = self.scale(el['lg'])
         pad = self.rules.num('SYMBOL_BOX_PAD') * s
         h = self.doc.hch[scn] * s
-        attr = self.symbol_box_attr(el)
+        attr = self.symbol_box_attr(el, sym)
 
         def pt(along, up):
             return (bx + ux * along - uy * up, by + uy * along + ux * up)
 
         corners = [pt(-pad, -pad), pt(w + pad, -pad),
                    pt(w + pad, h + pad), pt(-pad, h + pad)]
+        lg, ly = self.symbol_layers.get(sym, (el['lg'], el['ly']))
         box = []
         for i in range(4):
             x1, y1 = corners[i]
             x2, y2 = corners[(i + 1) % 4]
             box.append({'type': 'line', 'nums': [x1, y1, x2, y2], 'str': None,
-                        'attr': attr, 'lg': el['lg'], 'ly': el['ly'],
-                        'cn': scn, 'span': None})
+                        'attr': attr, 'lg': lg if lg is not None else el['lg'],
+                        'ly': ly, 'cn': scn, 'span': None})
         self.bump('symbol_boxes')
         return box
 
-    def symbol_box_attr(self, el):
-        a = self.symbol_attr(el, None)
+    def symbol_box_attr(self, el, sym=None):
+        a = self.symbol_attr(el, None, sym)
         a.pop('cn', None)
         a['lt'] = 'lt1'           # 枠は実線で描く
         if self.rules['SYMBOL_BOX_COLOR'].lower() != 'same':
             a['lc'] = f"lc{self.rules['SYMBOL_BOX_COLOR']}"
         return a
 
-    def symbol_attr(self, el, scn):
+    def symbol_attr(self, el, scn, sym=None):
         a = dict(el['attr'])
         if scn is not None:
             a['cn'] = f'cn{scn}'
+        if sym in self.symbol_layers:
+            lg, ly = self.symbol_layers[sym]
+            if lg is not None:
+                a['lg'] = f'lg{lg:x}'
+            a['ly'] = f'ly{ly:x}'
+            return self.apply_symbol_color(a)
         spec = self.rules['SYMBOL_LAYER']
         if spec.lower() != 'same':
             lg, ly = spec.split(':', 1) if ':' in spec else ('*', spec)
@@ -1256,6 +1324,9 @@ class CeilingPlan:
                 a['lg'] = f'lg{lg}'
             if ly != '*':
                 a['ly'] = f'ly{ly}'
+        return self.apply_symbol_color(a)
+
+    def apply_symbol_color(self, a):
         if self.rules['SYMBOL_COLOR'].lower() != 'same':
             a['lc'] = f"lc{self.rules['SYMBOL_COLOR']}"
         return a
@@ -1349,10 +1420,14 @@ class CeilingPlan:
         x0, y0 = self.legend_origin(placed, w, h, s)
         out = []
 
-        def add(type_, nums, kind, text=None):
-            out.append({'type': type_, 'nums': nums, 'str': text,
-                        'attr': self.legend_attr(kind),
-                        'lg': lg, 'ly': 0, 'cn': cn, 'span': None})
+        def add(type_, nums, kind, text=None, sym=None):
+            # 記号ごとにレイヤを分けているときは、仕上表の行もその
+            # レイヤに入れる。表の枠と罫線は LEGEND_LAYER のまま。
+            at = self.symbol_layers.get(sym)
+            attr = self.legend_attr(kind, at)
+            out.append({'type': type_, 'nums': nums, 'str': text, 'attr': attr,
+                        'lg': at[0] if at and at[0] is not None else lg,
+                        'ly': at[1] if at else 0, 'cn': cn, 'span': None})
 
         # 外枠。中の罫線とは線色を変えられる。
         add('line', [x0, y0, x0 + w, y0], 'border')
@@ -1371,8 +1446,8 @@ class CeilingPlan:
         add('text', [x0 + pad, ty(0), 0, 0], 'text', '記号')
         add('text', [x0 + w1 + pad, ty(0), 0, 0], 'text', self.rules['LEGEND_TITLE'])
         for i, (sym, desc) in enumerate(rows, 1):
-            add('text', [x0 + pad, ty(i), 0, 0], 'text', sym)
-            add('text', [x0 + w1 + pad, ty(i), 0, 0], 'text', desc)
+            add('text', [x0 + pad, ty(i), 0, 0], 'text', sym, sym)
+            add('text', [x0 + w1 + pad, ty(i), 0, 0], 'text', desc, sym)
 
         for el in out:
             if el['type'] == 'text':
@@ -1400,16 +1475,22 @@ class CeilingPlan:
         _, _, x1, y1 = self.bbox(placed)
         return x1 + 10.0 * s, y1 - h
 
-    def legend_attr(self, kind):
-        """仕上表の属性。kind は border(外枠) / line(中の罫線) / text(文字)。"""
+    def legend_attr(self, kind, at=None):
+        """仕上表の属性。kind は border(外枠) / line(中の罫線) / text(文字)。
+        at を渡すと、その行だけ別のレイヤに置く。"""
         a = {}
-        spec = self.rules['LEGEND_LAYER']
-        if spec.lower() != 'same':
-            lg, ly = spec.split(':', 1) if ':' in spec else ('*', spec)
-            if lg != '*':
-                a['lg'] = f'lg{lg}'
-            if ly != '*':
-                a['ly'] = f'ly{ly}'
+        if at is not None:
+            if at[0] is not None:
+                a['lg'] = f'lg{at[0]:x}'
+            a['ly'] = f'ly{at[1]:x}'
+        else:
+            spec = self.rules['LEGEND_LAYER']
+            if spec.lower() != 'same':
+                lg, ly = spec.split(':', 1) if ':' in spec else ('*', spec)
+                if lg != '*':
+                    a['lg'] = f'lg{lg}'
+                if ly != '*':
+                    a['ly'] = f'ly{ly}'
         color = {'border': 'LEGEND_BORDER_COLOR',
                  'line': 'LEGEND_LINE_COLOR'}.get(kind, 'LEGEND_COLOR')
         if self.rules[color].lower() != 'same':
@@ -1596,8 +1677,11 @@ def write_log(rpath, doc, plan, written):
         lines.append('')
         lines.append('室名と記号の対応')
         width = max(disp_width(n) for n, _, _ in plan.assign_note)
-        lines += [f'  {pad(n, width)}  {s:6} {why}'
-                  for n, s, why in plan.assign_note]
+        for n, s, why in plan.assign_note:
+            at = plan.symbol_layers.get(s)
+            where = f'レイヤ {at[0] if at[0] is not None else 0:x}:{at[1]:x}  ' \
+                if at else ''
+            lines.append(f'  {pad(n, width)}  {s:6} {where}{why}')
     if plan.unknown:
         default = plan.rules['ROOM_DEFAULT'].strip()
         lines.append('')
