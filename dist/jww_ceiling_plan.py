@@ -1480,6 +1480,23 @@ def abort_with(temp_path, message):
     sys.exit(1)
 
 
+def save_copy(temp):
+    """受け取った jwc_temp.txt の控えを残す。
+
+    実行のたびに結果で上書きされてしまうので、うまく作図できないときに
+    元のデータを見返せるようにしておく。
+    """
+    dest = os.path.join(script_dir(), 'jwc_temp_控え.txt')
+    try:
+        with open(temp, 'rb') as f:
+            data = f.read()
+        with open(dest, 'wb') as f:
+            f.write(data)
+        return os.path.basename(dest)
+    except OSError:
+        return None
+
+
 def find_temp():
     """jwc_temp.txt を探す。
 
@@ -1520,9 +1537,13 @@ def main():
 
     if '--layers' in sys.argv:
         # レイヤ調査だけして終わる。作図はしない。
+        # 受け取ったデータの控えも残す。jwc_temp.txt は実行のたびに
+        # 結果で上書きされるので、うまくいかないときの調べ物用。
+        kept = save_copy(temp)
         write_log(rpath, doc, plan, 0)
+        note = f'受け取ったデータの控えを {kept} に残しました。' if kept else ''
         abort_with(temp, 'レイヤ別の内訳を jww_ceiling_plan.log に'
-                         '書き出しました。メモ帳で開きます。')
+                         '書き出しました。メモ帳で開きます。' + note)
 
     try:
         elements = plan.build()
