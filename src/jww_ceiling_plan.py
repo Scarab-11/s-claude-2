@@ -934,20 +934,25 @@ class CeilingPlan:
             if not auto:
                 continue
             finish = finishes.get(key)
-            if finish and finish in by_finish:
-                self.assign[key] = by_finish[finish]
+            # 突き合わせは空白を取ってから。同じ仕上でも「木軸下地　石膏…」
+            # 「木軸下地石膏…」のように書き方が揺れるため。
+            fkey = re.sub(r'[\s　]', '', finish) if finish else ''
+            if fkey and fkey in by_finish:
+                self.assign[key] = by_finish[fkey]
                 self.assign_note.append(
-                    (display[key], by_finish[finish], '同じ天井仕上'))
+                    (display[key], by_finish[fkey], '同じ天井仕上'))
                 continue
             sym = f'{prefix}{number}'
             number += 1
             self.assign[key] = sym
             if finish:
-                by_finish[finish] = sym
+                by_finish[fkey] = sym
                 self.assign_note.append((display[key], sym, f'仕上表: {finish}'))
             else:
                 self.assign_note.append((display[key], sym, '自動採番'))
-            self.auto_legend.append((sym, finish or ''))
+            # 仕上が読めなかった行は空欄にせず室名を入れておく。空の行が
+            # 並ぶと表が壊れて見えるうえ、どの室の行か分からなくなる。
+            self.auto_legend.append((sym, finish or f'（{display[key]}）'))
             self.unknown.append(display[key])
 
     def next_symbol_no(self, prefix):
@@ -976,14 +981,7 @@ class CeilingPlan:
                 continue
             if want and not Rules.match_any([want], el['lg'], el['ly']):
                 continue
-            key = normalize_key(el['str'])
-            if not key:
-                continue
-            # 表が「倉庫」で図面が「倉庫①」のこともあれば、その逆もある。
-            # どちらから見ても頭が一致すれば同じ室とみなす。
-            exact = [n for n in names if n == key]
-            loose = [n for n in names
-                     if n != key and (n.startswith(key) or key.startswith(n))]
+            exact, loose = self.match_names(el['str'], names)
             if exact or loose:
                 hits.setdefault((el['lg'], el['ly']), []).append(
                     (exact, loose, el))
@@ -994,18 +992,16 @@ class CeilingPlan:
         if len(cells) < 3:            # 表と呼べるだけの行数がないなら諦める
             return {}
 
-        band = self.row_band([(c[2]) for c in cells])
+        texts = self.cells_by_row(layer, [el for _, _, el in cells])
         table = {}
         # 室名がそのまま一致する行を先に入れる。枝番違いの行に上書き
         # されないようにするため。
         for use_exact in (True, False):
             for exact, loose, el in cells:
                 targets = exact if use_exact else loose
-                if not targets:
-                    continue
-                text = self.cell_right_of(el, layer, band)
-                for name in targets:
-                    if text:
+                text = texts.get(id(el), '')
+                if text:
+                    for name in targets:
                         table.setdefault(name, text)
         if table:
             self.log.append('')
@@ -1014,30 +1010,76 @@ class CeilingPlan:
         return table
 
     @staticmethod
-    def row_band(cells):
-        """表の行の高さ。室名セルの縦の間隔から見当をつける。"""
-        ys = sorted(el['nums'][1] for el in cells)
-        gaps = [b - a for a, b in zip(ys, ys[1:]) if b - a > EPS]
-        return (min(gaps) * 0.45) if gaps else 1e9
+    def match_names(text, names):
+        """表のセルの文字が、図面のどの室名を指しているかを返す。
 
-    def cell_right_of(self, el, layer, band):
-        """その室名セルの右にある文字をつないで返す。"""
-        x = el['nums'][0] + abs(self.direction(el)[2])
-        y = el['nums'][1]
-        found = []
-        for other in self.doc.elements:
-            if other is el or other['type'] != 'text':
+        「収納1・収納2」のように 1 つのセルに 2 室まとめて書いてあることが
+        あるので、中黒などで切った分も見る。表が「倉庫」で図面が「倉庫①」、
+        その逆もあるので、頭の一致は双方向に見る。
+        """
+        exact, loose = [], []
+        keys = [normalize_key(text)]
+        keys += [normalize_key(p) for p in re.split(r'[・･/／、,]', text)]
+        for key in keys:
+            if not key:
                 continue
-            if (other['lg'], other['ly']) != layer:
+            for n in names:
+                if n == key and n not in exact:
+                    exact.append(n)
+                elif n != key and (n.startswith(key) or key.startswith(n)) \
+                        and n not in loose:
+                    loose.append(n)
+        return exact, [n for n in loose if n not in exact]
+
+    def cells_by_row(self, layer, name_cells):
+        """室名セルごとに、その行の右側にある文字をつないで返す。
+
+        行の高さは表によって違う（2行書きの行と1行の行が混ざる）ので、
+        帯の幅を決め打ちにせず、いちばん近い室名セルの行に振り分ける。
+        また、右側かどうかは文字の「書き出し位置」で見る。文字の末尾で
+        見ると、長い室名が欄からはみ出したときに右の欄を取りこぼす。
+        """
+        if not name_cells:
+            return {}
+        margin = self.doc.hcw[3] * self.scale(layer[0])   # 1文字分だけ余裕を見る
+        left = min(el['nums'][0] for el in name_cells)
+        rows = sorted(((el['nums'][1], el) for el in name_cells),
+                      key=lambda t: -t[0])              # 上から下へ
+        bounds = self.row_bounds([y for y, _ in rows])
+        found = {id(el): [] for el in name_cells}
+
+        for other in self.doc.elements:
+            if other['type'] != 'text' or (other['lg'], other['ly']) != layer:
                 continue
             ox, oy = other['nums'][0], other['nums'][1]
-            if ox < x - EPS or abs(oy - y) > band:
-                continue
+            if ox < left + margin:
+                continue          # 室名の欄より左（用途区分など）は見ない
             s = other['str'].strip()
             if not s or re.fullmatch(r'[\d,.\-〜~ 　]+', s):
                 continue          # 天井高などの数字だけの欄は仕上ではない
-            found.append((-oy, ox, s))
-        return ' '.join(s for _, _, s in sorted(found))
+            for (top, bottom), (_, el) in zip(bounds, rows):
+                if bottom <= oy < top:
+                    found[id(el)].append((-oy, ox, s))
+                    break         # 表の外（見出しなど）はどの行にも入らない
+
+        return {k: ' '.join(s for _, _, s in sorted(v)) for k, v in found.items()}
+
+    @staticmethod
+    def row_bounds(ys):
+        """行の上下の境目。隣の行との中間で切る。
+
+        いちばん近い行に入れるだけだと、表の見出しや表題まで最初の行に
+        吸い込まれてしまうので、上端と下端も 1 行分で打ち切る。
+        """
+        if len(ys) == 1:
+            return [(ys[0] + 1e9, ys[0] - 1e9)]
+        mids = [(a + b) / 2.0 for a, b in zip(ys, ys[1:])]
+        out = []
+        for i, y in enumerate(ys):
+            top = mids[i - 1] if i else y + (ys[0] - ys[1]) / 2.0
+            bottom = mids[i] if i < len(mids) else y - (ys[-2] - ys[-1]) / 2.0
+            out.append((top, bottom))
+        return out
 
     # --- 3. 室名の下に天井仕上記号を置く -----------------------
     def place_symbols(self, elements):
