@@ -98,7 +98,13 @@ class Rules:
         'ROOM_MATCH':   'prefix',
         # 部屋名が入っているレイヤ  off = ROOM に書いた室名だけを拾う
         'ROOM_LAYER':   'off',
-        # ROOM に無い室名に置く記号  no = 置かない
+        # ROOM に無い室名の扱い  on = 記号を自動で割り当てる / off = ROOM_DEFAULT を置く
+        'ROOM_AUTO':    'on',
+        # 自動で割り当てる記号の頭
+        'SYMBOL_PREFIX': 'C-',
+        # 図面の中の仕上表(内部仕上概要表)を読む  auto / off / 例 0:9
+        'FINISH_TABLE': 'auto',
+        # ROOM_AUTO が off のとき、ROOM に無い室名に置く記号  no = 置かない
         'ROOM_DEFAULT': 'C-?',
         # 記号の文字種(1-10)
         'SYMBOL_CN':    '3',
@@ -528,6 +534,9 @@ class CeilingPlan:
         self.log = []
         self.used = []            # 実際に置いた記号
         self.unknown = []         # ROOM に無かった室名
+        self.assign = {}          # 室名 => 記号
+        self.auto_legend = []     # 自動で作った仕上表の行
+        self.assign_note = []     # ログ用の内訳
         self.counts = {}
         spec = (rules['SCALE'] or '').strip().lower()
         self.scale_fixed = None if spec in ('', 'auto') else to_num(spec)
@@ -539,6 +548,7 @@ class CeilingPlan:
         kept = self.filter_layers(self.doc.elements)
         kept = self.recolor(kept)
         kept = self.process_texts(kept)
+        self.build_assignment(kept)
         body = kept + self.make_walls(kept) + self.place_symbols(kept)
         if not body:
             raise ValueError('天井伏図にする要素がありません。選択したデータの'
@@ -881,6 +891,154 @@ class CeilingPlan:
                 out.append({**el, 'str': s, 'span': (ux * w, uy * w)})
         return out
 
+    # --- 3a. 室名ごとの記号を決める ----------------------------
+    #
+    #   実務では室名がその都度変わるので、ルールファイルに室名を
+    #   登録しておく方式では追いつかない。図面にある室名を全部拾い、
+    #   次の順で記号を決める。
+    #     1. ROOM に登録があればそれ（手で決めたものが最優先）
+    #     2. 図面の仕上表に同じ天井仕上が載っている室と同じ記号
+    #     3. 新しい番号を振る
+    # -----------------------------------------------------------
+    def build_assignment(self, elements):
+        self.assign = {}          # 正規化した室名 => 記号
+        self.auto_legend = []     # 自動で作った仕上表の行
+        self.assign_note = []     # ログ用の内訳
+
+        names, display = [], {}
+        for el in elements:
+            if el['type'] != 'text' or not self.on_room_layer(el):
+                continue
+            text = el['str'].strip()
+            if not text or any(p.search(text) for p in self.rules.noroom):
+                continue
+            key = normalize_key(text)
+            if key not in display:
+                display[key] = text
+                names.append(key)
+        if not names:
+            return
+
+        auto = self.rules['ROOM_AUTO'].lower() in ('on', 'yes', '1')
+        finishes = self.finish_table(names) if auto else {}
+        prefix = self.rules['SYMBOL_PREFIX'].strip()
+        number = self.next_symbol_no(prefix)
+        by_finish = {}
+
+        for key in names:
+            sym = self.lookup_room(display[key])
+            if sym is not None:
+                self.assign[key] = sym
+                self.assign_note.append((display[key], sym, 'ルールの ROOM'))
+                continue
+            if not auto:
+                continue
+            finish = finishes.get(key)
+            if finish and finish in by_finish:
+                self.assign[key] = by_finish[finish]
+                self.assign_note.append(
+                    (display[key], by_finish[finish], '同じ天井仕上'))
+                continue
+            sym = f'{prefix}{number}'
+            number += 1
+            self.assign[key] = sym
+            if finish:
+                by_finish[finish] = sym
+                self.assign_note.append((display[key], sym, f'仕上表: {finish}'))
+            else:
+                self.assign_note.append((display[key], sym, '自動採番'))
+            self.auto_legend.append((sym, finish or ''))
+            self.unknown.append(display[key])
+
+    def next_symbol_no(self, prefix):
+        """空いている番号の先頭。ルールに書いた記号とぶつからないようにする。"""
+        used = [s for s, _ in self.rules.legend] + list(self.rules.rooms.values())
+        nums = [int(m.group(1)) for s in used
+                if (m := re.fullmatch(re.escape(prefix) + r'(\d+)', s.strip()))]
+        return max(nums, default=0) + 1
+
+    def finish_table(self, names):
+        """図面に描いてある仕上表から「室名 => 天井仕上」を読む。
+
+        表の作りは物件ごとに違うので、罫線ではなく文字の位置で読む。
+        室名レイヤ以外に室名と同じ文字が並んでいるところを表とみなし、
+        その右側にある文字を仕上とする。天井高のような数字だけの
+        文字は読み飛ばす。
+        """
+        spec = self.rules['FINISH_TABLE'].strip()
+        if spec.lower() in ('off', 'no', ''):
+            return {}
+
+        want = Rules.layer_spec(spec) if spec.lower() != 'auto' else None
+        hits = {}
+        for el in self.doc.elements:
+            if el['type'] != 'text' or self.on_room_layer(el):
+                continue
+            if want and not Rules.match_any([want], el['lg'], el['ly']):
+                continue
+            key = normalize_key(el['str'])
+            if not key:
+                continue
+            # 表が「倉庫」で図面が「倉庫①」のこともあれば、その逆もある。
+            # どちらから見ても頭が一致すれば同じ室とみなす。
+            exact = [n for n in names if n == key]
+            loose = [n for n in names
+                     if n != key and (n.startswith(key) or key.startswith(n))]
+            if exact or loose:
+                hits.setdefault((el['lg'], el['ly']), []).append(
+                    (exact, loose, el))
+
+        if not hits:
+            return {}
+        layer, cells = max(hits.items(), key=lambda kv: len(kv[1]))
+        if len(cells) < 3:            # 表と呼べるだけの行数がないなら諦める
+            return {}
+
+        band = self.row_band([(c[2]) for c in cells])
+        table = {}
+        # 室名がそのまま一致する行を先に入れる。枝番違いの行に上書き
+        # されないようにするため。
+        for use_exact in (True, False):
+            for exact, loose, el in cells:
+                targets = exact if use_exact else loose
+                if not targets:
+                    continue
+                text = self.cell_right_of(el, layer, band)
+                for name in targets:
+                    if text:
+                        table.setdefault(name, text)
+        if table:
+            self.log.append('')
+            self.log.append(f'図面の仕上表をレイヤ {layer[0]:x}:{layer[1]:x} から'
+                            f'読みました（{len(table)}室）。')
+        return table
+
+    @staticmethod
+    def row_band(cells):
+        """表の行の高さ。室名セルの縦の間隔から見当をつける。"""
+        ys = sorted(el['nums'][1] for el in cells)
+        gaps = [b - a for a, b in zip(ys, ys[1:]) if b - a > EPS]
+        return (min(gaps) * 0.45) if gaps else 1e9
+
+    def cell_right_of(self, el, layer, band):
+        """その室名セルの右にある文字をつないで返す。"""
+        x = el['nums'][0] + abs(self.direction(el)[2])
+        y = el['nums'][1]
+        found = []
+        for other in self.doc.elements:
+            if other is el or other['type'] != 'text':
+                continue
+            if (other['lg'], other['ly']) != layer:
+                continue
+            ox, oy = other['nums'][0], other['nums'][1]
+            if ox < x - EPS or abs(oy - y) > band:
+                continue
+            s = other['str'].strip()
+            if not s or re.fullmatch(r'[\d,.\-〜~ 　]+', s):
+                continue          # 天井高などの数字だけの欄は仕上ではない
+            found.append((-oy, ox, s))
+        return ' '.join(s for _, _, s in sorted(found))
+
     # --- 3. 室名の下に天井仕上記号を置く -----------------------
     def place_symbols(self, elements):
         scn = max(1, min(10, self.rules.int('SYMBOL_CN')))
@@ -923,6 +1081,9 @@ class CeilingPlan:
         # NOROOM は「そもそも室名ではない」の意味なので ROOM より優先する。
         if not text or any(p.search(text) for p in self.rules.noroom):
             return None
+        sym = self.assign.get(normalize_key(text))
+        if sym is not None:
+            return sym
         sym = self.lookup_room(text)
         if sym is not None:
             return sym
@@ -1114,9 +1275,14 @@ class CeilingPlan:
         mode = self.rules['LEGEND_MODE'].lower()
         if mode == 'no':
             return []
-        rows = self.rules.legend
+        rows = list(self.rules.legend)
         if mode == 'used':
             rows = [r for r in rows if r[0] in self.used]
+        # 自動で割り当てた記号の行を足す。仕上が読めていなければ空欄にし、
+        # 図面の上で書き込めるようにする。
+        known = {r[0] for r in rows}
+        rows += [r for r in self.auto_legend
+                 if r[0] not in known and r[0] in self.used]
         if not rows:
             return []
 
@@ -1331,6 +1497,16 @@ def main():
     write_log(rpath, doc, plan, len(elements))
 
 
+def pad(text, width):
+    """全角を2桁と数えて右に空白を足す。ログの桁を揃えるため。"""
+    w = sum(1 if CeilingPlan.is_halfwidth(c) else 2 for c in text)
+    return text + ' ' * max(0, width - w)
+
+
+def disp_width(text):
+    return sum(1 if CeilingPlan.is_halfwidth(c) else 2 for c in text)
+
+
 def write_log(rpath, doc, plan, written):
     c = plan.counts
     lines = [
@@ -1353,16 +1529,23 @@ def write_log(rpath, doc, plan, written):
         'レイヤ別の内訳（KEEP / DROP に書く番号はここで調べます）',
     ]
     lines += plan.layer_summary()
+    if plan.assign_note:
+        lines.append('')
+        lines.append('室名と記号の対応')
+        width = max(disp_width(n) for n, _, _ in plan.assign_note)
+        lines += [f'  {pad(n, width)}  {s:6} {why}'
+                  for n, s, why in plan.assign_note]
     if plan.unknown:
         default = plan.rules['ROOM_DEFAULT'].strip()
         lines.append('')
-        lines.append(f'ROOM に登録の無い室名です（仮に {default} を置きました）。')
-        lines.append('下の行を 天伏図ルール.txt の ROOM の並びに貼り付けて、')
-        lines.append('記号を正しいものに書き換えてください。')
+        lines.append('ルールに登録が無く、記号を自動で割り当てた室名です。')
+        lines.append('この割り当てで固定したいときは、下の行を 天伏図ルール.txt の')
+        lines.append('ROOM の並びに貼り付けてください（記号は変えてかまいません）。')
         lines.append('')
-        width = max(len(n) for n in plan.unknown)
+        width = max(disp_width(n) for n in plan.unknown)
         for n in plan.unknown:
-            row = f'ROOM {n.ljust(width)}  {default}'
+            sym = plan.assign.get(normalize_key(n), default)
+            row = f'ROOM {pad(n, width)}  {sym}'
             if near := plan.similar_rooms(n):
                 row += f'      ← 似た登録があります: {near}'
             lines.append(row)
