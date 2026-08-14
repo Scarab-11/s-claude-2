@@ -142,6 +142,7 @@ class Rules:
         self.drop = []
         self.rooms = {}           # 正規化した室名 => 記号
         self.legend = []          # [記号, 説明] 記述順
+        self.colors = []          # [(lg, ly), 線番号]
         self.droptext = []        # 正規表現
         self.retext = []          # [正規表現, 置換後]
         self.settings = dict(self.DEFAULTS)
@@ -169,6 +170,7 @@ class Rules:
             'LEGEND':   self.add_legend,
             'DROPTEXT': lambda rest, no: self.add_regexp(self.droptext, rest, no),
             'RETEXT':   self.add_retext,
+            'COLOR':    self.add_color,
             'SET':      self.add_setting,
         }
         for no, line in enumerate(text.splitlines(), 1):
@@ -202,6 +204,18 @@ class Rules:
         if re.fullmatch(r'1[0-5]|\d', s):
             return int(s)
         return None
+
+    def add_color(self, rest, no):
+        """COLOR 0:3 5 … そのレイヤの線色を書き換えて写す"""
+        parts = rest.split() if rest else []
+        if len(parts) < 2 or not re.fullmatch(r'\d+', parts[1]):
+            self.errors.append(f'{no}行目: COLOR は「レイヤ 線番号」の形で書きます')
+            return
+        spec = self.layer_spec(parts[0])
+        if spec is None:
+            self.errors.append(f'{no}行目: レイヤの指定が読めません ({parts[0]})')
+            return
+        self.colors.append((spec, parts[1]))
 
     def add_room(self, rest, no):
         parts = rest.split() if rest else []
@@ -481,6 +495,7 @@ class CeilingPlan:
 
     def build(self):
         kept = self.filter_layers(self.doc.elements)
+        kept = self.recolor(kept)
         kept = self.process_texts(kept)
         body = kept + self.make_walls(kept) + self.place_symbols(kept)
         if not body:
@@ -502,6 +517,21 @@ class CeilingPlan:
             else:
                 self.bump('layer_dropped')
         return kept
+
+    def recolor(self, elements):
+        """COLOR で指定したレイヤの線色を差し替える。すでに壁線が描いてある
+        図面で、その線色だけを変えたいときに使う。"""
+        if not self.rules.colors:
+            return elements
+        out = []
+        for el in elements:
+            for spec, color in self.rules.colors:
+                if Rules.match_any([spec], el['lg'], el['ly']):
+                    el = {**el, 'attr': {**el['attr'], 'lc': f'lc{color}'}}
+                    self.bump('recolored')
+                    break
+            out.append(el)
+        return out
 
     # --- 1b. 壁の中心線から壁線をつくる ------------------------
     #
@@ -716,13 +746,16 @@ class CeilingPlan:
         tally = {}
         for el in self.doc.elements:
             t = tally.setdefault((el['lg'], el['ly']),
-                                 {'fig': 0, 'txt': 0, 'len': [], 'sample': []})
+                                 {'fig': 0, 'txt': 0, 'len': [], 'sample': [],
+                                  'lt': {}})
             if el['type'] == 'text':
                 t['txt'] += 1
                 if len(t['sample']) < 3 and el['str'].strip():
                     t['sample'].append(el['str'].strip())
             else:
                 t['fig'] += 1
+                lt = (el['attr'].get('lt') or 'lt1')[2:]
+                t['lt'][lt] = t['lt'].get(lt, 0) + 1
                 if el['type'] == 'line':
                     n = el['nums']
                     t['len'].append(math.hypot(n[2] - n[0], n[3] - n[1]))
@@ -734,11 +767,18 @@ class CeilingPlan:
         for (lg, ly), t in sorted(self.layer_tally().items()):
             mark = '残す' if self.rules.keep_layer(lg, ly) else '除外'
             row = f"  {lg:x}:{ly:x}   線 {t['fig']:4d}   文字 {t['txt']:4d}   {mark}"
+            if t['lt']:
+                order = sorted(t['lt'].items(), key=lambda kv: -kv[1])
+                row += '   線種 ' + ' '.join(f'{k}x{v}' for k, v in order[:3])
             if t['len']:
-                row += f"   線の長さ {fmt(min(t['len']))}〜{fmt(max(t['len']))}"
+                row += f"   長さ {fmt(min(t['len']))}〜{fmt(max(t['len']))}"
             if t['sample']:
                 row += f"   文字の例 {' / '.join(t['sample'])}"
             lines.append(row)
+        if lines:
+            lines.append('')
+            lines.append('  線種 2〜4 が一点鎖線・破線です。壁の中心線や基準線は'
+                         'ふつうここに入ります。')
         return lines
 
     def layer_list(self):
