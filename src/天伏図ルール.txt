@@ -156,6 +156,16 @@ SET SYMBOL_LAYER 0:3
  記号の線色　same＝室名と同じ／例 2
 SET SYMBOL_COLOR same
 
+ 記号を四角の枠で囲む　on／off
+SET SYMBOL_BOX on
+
+ 枠と文字とのすき間（図寸mm）
+ 大きくすると枠がひとまわり大きくなります。
+SET SYMBOL_BOX_PAD 1.0
+
+ 枠の線色　same＝記号と同じ／例 5
+SET SYMBOL_BOX_COLOR same
+
  室名の照合　prefix＝後ろに何か付いていても拾う／exact＝完全一致だけ
 SET ROOM_MATCH prefix
 
@@ -173,14 +183,23 @@ SET LEGEND_W2 70
 SET LEGEND_RH 6
 SET LEGEND_CN 3
 
- 仕上表のレイヤ・線色　same＝直前に書いた要素と同じ
+ 仕上表を書くレイヤ
 
- 注意：same のままだと、仕上表は直前に書かれた要素と同じレイヤに
- 入ります。上の SYMBOL_LAYER でレイヤを指定した場合、仕上表も
- そのレイヤ（天井仕上の文字レイヤ）に入ります。
- 仕上表だけ別のレイヤに分けたいときは、same を 0:6 のような
- レイヤ指定に書き換えてください。
-SET LEGEND_LAYER same
+ ★ここも実際のレイヤ番号に直してください★
+
+ 記号（図面の中の C-1 など）と仕上表は別のレイヤに分けています。
+ 上の SYMBOL_LAYER が記号、こちらが仕上表です。下の 0:4 は仮の
+ 番号なので、仕上表を置きたいレイヤの番号に書き換えてください。
+ same にすると、仕上表は記号と同じレイヤに入ります。
+SET LEGEND_LAYER 0:4
+
+ 仕上表の外枠の線色（線番号）
+SET LEGEND_BORDER_COLOR 5
+
+ 仕上表の中の罫線の線色（線番号）
+SET LEGEND_LINE_COLOR 2
+
+ 仕上表の文字の線色　same＝罫線と同じ／例 2
 SET LEGEND_COLOR same
 
  仕上表の見出し（記号欄の右どなり）

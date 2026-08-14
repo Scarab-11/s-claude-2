@@ -104,6 +104,12 @@ class Rules:
         'SYMBOL_LAYER': 'same',
         # 記号の線色  same = 室名と同じ / 例 2
         'SYMBOL_COLOR': 'same',
+        # 記号を四角の枠で囲む  on / off
+        'SYMBOL_BOX':   'on',
+        # 枠と文字とのすき間(図寸mm)
+        'SYMBOL_BOX_PAD': '1.0',
+        # 枠の線色  same = 記号と同じ / 例 5
+        'SYMBOL_BOX_COLOR': 'same',
         # 凡例の書き出し  all = 全部 / used = 使った記号だけ / no = 書かない
         'LEGEND_MODE':  'all',
         # 凡例の位置  auto = 図の右上 / 例 12000,8000 (図面の座標＝実寸mm)
@@ -113,7 +119,9 @@ class Rules:
         'LEGEND_RH':    '6',       # 行の高さ(図寸mm)
         'LEGEND_CN':    '3',       # 凡例の文字種
         'LEGEND_LAYER': 'same',
-        'LEGEND_COLOR': 'same',
+        'LEGEND_COLOR': 'same',    # 文字の線色  same = 罫線に合わせる
+        'LEGEND_BORDER_COLOR': '5',  # 外枠の線色
+        'LEGEND_LINE_COLOR':   '2',  # 中の罫線の線色
         'LEGEND_TITLE': '仕上表',
         # 文字データの解釈  auto / rel(長さ成分) / abs(終点座標)
         'CHFORMAT':     'auto',
@@ -526,7 +534,9 @@ class CeilingPlan:
             cx = x + ux * length / 2.0 + px * dy
             cy = y + uy * length / 2.0 + py * dy
 
-            out.append({'type': 'text', 'nums': [cx - ux * w / 2.0, cy - uy * w / 2.0, 0, 0],
+            bx, by = cx - ux * w / 2.0, cy - uy * w / 2.0
+            out += self.symbol_box(el, scn, bx, by, w, ux, uy)
+            out.append({'type': 'text', 'nums': [bx, by, 0, 0],
                         'str': sym, 'attr': self.symbol_attr(el, scn),
                         'lg': el['lg'], 'ly': el['ly'], 'cn': scn,
                         'span': (ux * w, uy * w)})
@@ -585,9 +595,46 @@ class CeilingPlan:
             return self.scale_fixed
         return self.doc.scale(lg)
 
+    def symbol_box(self, el, scn, bx, by, w, ux, uy):
+        """記号を囲む四角。文字が傾いていれば枠も一緒に傾ける。
+
+        (bx, by) は文字の左下。文字の並ぶ向きが (ux, uy)、
+        その左まわり 90 度 (-uy, ux) が文字の高さの向きになる。
+        """
+        if self.rules['SYMBOL_BOX'].lower() not in ('on', 'yes', '1'):
+            return []
+        s = self.scale(el['lg'])
+        pad = self.rules.num('SYMBOL_BOX_PAD') * s
+        h = self.doc.hch[scn] * s
+        attr = self.symbol_box_attr(el)
+
+        def pt(along, up):
+            return (bx + ux * along - uy * up, by + uy * along + ux * up)
+
+        corners = [pt(-pad, -pad), pt(w + pad, -pad),
+                   pt(w + pad, h + pad), pt(-pad, h + pad)]
+        box = []
+        for i in range(4):
+            x1, y1 = corners[i]
+            x2, y2 = corners[(i + 1) % 4]
+            box.append({'type': 'line', 'nums': [x1, y1, x2, y2], 'str': None,
+                        'attr': attr, 'lg': el['lg'], 'ly': el['ly'],
+                        'cn': scn, 'span': None})
+        self.bump('symbol_boxes')
+        return box
+
+    def symbol_box_attr(self, el):
+        a = self.symbol_attr(el, None)
+        a.pop('cn', None)
+        a['lt'] = 'lt1'           # 枠は実線で描く
+        if self.rules['SYMBOL_BOX_COLOR'].lower() != 'same':
+            a['lc'] = f"lc{self.rules['SYMBOL_BOX_COLOR']}"
+        return a
+
     def symbol_attr(self, el, scn):
         a = dict(el['attr'])
-        a['cn'] = f'cn{scn}'
+        if scn is not None:
+            a['cn'] = f'cn{scn}'
         spec = self.rules['SYMBOL_LAYER']
         if spec.lower() != 'same':
             lg, ly = spec.split(':', 1) if ':' in spec else ('*', spec)
@@ -681,32 +728,32 @@ class CeilingPlan:
         w = w1 + w2
         h = rh * (len(rows) + 1)
         x0, y0 = self.legend_origin(placed, w, h, s)
-        attr = self.legend_attr()
-
         out = []
 
-        def add(type_, nums, text=None):
-            out.append({'type': type_, 'nums': nums, 'str': text, 'attr': attr,
+        def add(type_, nums, kind, text=None):
+            out.append({'type': type_, 'nums': nums, 'str': text,
+                        'attr': self.legend_attr(kind),
                         'lg': lg, 'ly': 0, 'cn': cn, 'span': None})
 
-        # 外枠と罫線
-        add('line', [x0, y0, x0 + w, y0])
-        add('line', [x0, y0 + h, x0 + w, y0 + h])
-        add('line', [x0, y0, x0, y0 + h])
-        add('line', [x0 + w, y0, x0 + w, y0 + h])
-        add('line', [x0 + w1, y0, x0 + w1, y0 + h])
+        # 外枠。中の罫線とは線色を変えられる。
+        add('line', [x0, y0, x0 + w, y0], 'border')
+        add('line', [x0, y0 + h, x0 + w, y0 + h], 'border')
+        add('line', [x0, y0, x0, y0 + h], 'border')
+        add('line', [x0 + w, y0, x0 + w, y0 + h], 'border')
+        # 中の罫線
+        add('line', [x0 + w1, y0, x0 + w1, y0 + h], 'line')
         for i in range(1, len(rows) + 1):
-            add('line', [x0, y0 + rh * i, x0 + w, y0 + rh * i])
+            add('line', [x0, y0 + rh * i, x0 + w, y0 + rh * i], 'line')
 
         # 見出し(最上段)と各行。上から順に並べる。
         def ty(i):
             return y0 + h - rh * (i + 1) + (rh - th) / 2.0
 
-        add('text', [x0 + pad, ty(0), 0, 0], '記号')
-        add('text', [x0 + w1 + pad, ty(0), 0, 0], self.rules['LEGEND_TITLE'])
+        add('text', [x0 + pad, ty(0), 0, 0], 'text', '記号')
+        add('text', [x0 + w1 + pad, ty(0), 0, 0], 'text', self.rules['LEGEND_TITLE'])
         for i, (sym, desc) in enumerate(rows, 1):
-            add('text', [x0 + pad, ty(i), 0, 0], sym)
-            add('text', [x0 + w1 + pad, ty(i), 0, 0], desc)
+            add('text', [x0 + pad, ty(i), 0, 0], 'text', sym)
+            add('text', [x0 + w1 + pad, ty(i), 0, 0], 'text', desc)
 
         for el in out:
             if el['type'] == 'text':
@@ -734,7 +781,8 @@ class CeilingPlan:
         _, _, x1, y1 = self.bbox(placed)
         return x1 + 10.0 * s, y1 - h
 
-    def legend_attr(self):
+    def legend_attr(self, kind):
+        """仕上表の属性。kind は border(外枠) / line(中の罫線) / text(文字)。"""
         a = {}
         spec = self.rules['LEGEND_LAYER']
         if spec.lower() != 'same':
@@ -743,9 +791,14 @@ class CeilingPlan:
                 a['lg'] = f'lg{lg}'
             if ly != '*':
                 a['ly'] = f'ly{ly}'
-        if self.rules['LEGEND_COLOR'].lower() != 'same':
-            a['lc'] = f"lc{self.rules['LEGEND_COLOR']}"
-        a['cn'] = f"cn{max(1, min(10, self.rules.int('LEGEND_CN')))}"
+        color = {'border': 'LEGEND_BORDER_COLOR',
+                 'line': 'LEGEND_LINE_COLOR'}.get(kind, 'LEGEND_COLOR')
+        if self.rules[color].lower() != 'same':
+            a['lc'] = f"lc{self.rules[color]}"
+        if kind == 'text':
+            a['cn'] = f"cn{max(1, min(10, self.rules.int('LEGEND_CN')))}"
+        else:
+            a['lt'] = 'lt1'
         return a
 
 
@@ -871,6 +924,7 @@ def write_log(rpath, doc, plan, written):
         f"文字を削除     : {c.get('text_dropped', 0)}",
         f"文字を置換     : {c.get('text_replaced', 0)}",
         f"置いた記号     : {c.get('symbols', 0)}",
+        f"記号の枠       : {c.get('symbol_boxes', 0)}",
         f"凡例の行数     : {c.get('legend_rows', 0)}",
         f'書き出した要素 : {written}',
     ]
