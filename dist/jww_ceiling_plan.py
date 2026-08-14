@@ -372,6 +372,7 @@ class Reader:
         self.hp1 = None
         self.skipped = {}
         self.skipped_at = {}      # (lg, ly) => 対応していない要素の数
+        self.skipped_sample = {}  # 種類 => その行の中身（1つだけ）
         self.state = {}
 
     def parse(self, text):
@@ -399,6 +400,9 @@ class Reader:
     def skip(self, s):
         key = re.match(r'[A-Za-z]{1,3}|.', s).group(0)
         self.skipped[key] = self.skipped.get(key, 0) + 1
+        # 中身も 1 行だけ控える。見慣れない行が出たときに、それが何なのかを
+        # ログだけで判断できるようにするため。
+        self.skipped_sample.setdefault(key, s[:60])
         at = (self.layer_no('lg'), self.layer_no('ly'))
         self.skipped_at[at] = self.skipped_at.get(at, 0) + 1
 
@@ -493,6 +497,7 @@ class Doc:
         self.hp1 = reader.hp1
         self.skipped = reader.skipped
         self.skipped_at = reader.skipped_at
+        self.skipped_sample = reader.skipped_sample
         self.rel_ch = self.detect_ch_format(rules['CHFORMAT'])
 
     def scale(self, lg):
@@ -1143,19 +1148,23 @@ class CeilingPlan:
 
     @staticmethod
     def row_bounds(ys):
-        """行の上下の境目。隣の行との中間で切る。
+        """行の上下の境目。隣の行との中間で切り、1 行分の高さで頭打ちにする。
 
-        いちばん近い行に入れるだけだと、表の見出しや表題まで最初の行に
-        吸い込まれてしまうので、上端と下端も 1 行分で打ち切る。
+        中間で切るだけだと、行の見出しを読み落とした行があったときに、
+        その行の仕上が上下の行に流れ込んでしまう。行の高さの中央値から
+        上限を決めておけば、行が欠けてもその分が捨てられるだけで済む。
+        上端と下端を打ち切るのも同じ理由（表の見出しや表題を吸い込む）。
         """
         if len(ys) == 1:
             return [(ys[0] + 1e9, ys[0] - 1e9)]
+        gaps = sorted(a - b for a, b in zip(ys, ys[1:]) if a - b > EPS)
+        reach = (gaps[len(gaps) // 2] * 0.75) if gaps else 1e9
         mids = [(a + b) / 2.0 for a, b in zip(ys, ys[1:])]
         out = []
         for i, y in enumerate(ys):
             top = mids[i - 1] if i else y + (ys[0] - ys[1]) / 2.0
             bottom = mids[i] if i < len(mids) else y - (ys[-2] - ys[-1]) / 2.0
-            out.append((top, bottom))
+            out.append((min(top, y + reach), max(bottom, y - reach)))
         return out
 
     # --- 3. 室名の下に天井仕上記号を置く -----------------------
@@ -1728,7 +1737,12 @@ def write_log(rpath, doc, plan, written):
     if doc.skipped:
         lines.append('')
         lines.append('対応していない要素があったため、複写されませんでした:')
-        lines += [f'  {k} … {v} 個' for k, v in doc.skipped.items()]
+        for k, v in doc.skipped.items():
+            row = f'  {k} … {v} 個'
+            sample = doc.skipped_sample.get(k, '')
+            if sample and not re.fullmatch(r'[A-Za-z]{1,3}', k):
+                row += f'   例: {sample}'
+            lines.append(row)
     lines += plan.log
     try:
         write_cp932(os.path.join(script_dir(), 'jww_ceiling_plan.log'),

@@ -446,6 +446,31 @@ def _():
     assert re.search(r'(?m)^  多目的室\s+軽天下地 岩綿吸音板', log), log
 
 
+@case('記号: 表の行が1つ欠けても隣の行を汚さない')
+def _():
+    # 概要表の「多目的室」の行の見出しだけが読めなかった状況を作る
+    # （実機で、その行だけ要素として読めていない例があった）
+    plan, n = re.subn(r'(?m)^ch -\d+ \d+ \d+ 0 "多目的室$', '多目的室', plan_3f())
+    assert n == 1, f'置き換えられていない: {n}'
+    rc, out, log, _ = run(plan)
+    assert rc == 0, log
+    body = log.split('表からはこう読めています')[1]
+    # 上下の行（更衣室・厨房・食堂）に多目的室の仕上が混ざっていないこと
+    for row, want in (('更衣室', '軽天下地 化粧石膏ﾎﾞｰﾄﾞt=9.5貼'),
+                      ('厨房・食堂', '軽天下地 岩綿吸音板t=9.5')):
+        m = re.search(rf'(?m)^  {re.escape(row)}\s+(.+)$', body)
+        assert m, f'{row} の行が無い\n{body}'
+        assert m.group(1).strip() == want, f'{row} に余計な文字: {m.group(1)}'
+
+
+@case('診断: 読めなかった行の中身をログに出す')
+def _():
+    plan = PLAN_1F + 'ly9\n多目的室\n'
+    rc, out, log, _ = run(plan)
+    assert rc == 0, log
+    assert re.search(r'多 … 1 個.*例: 多目的室', log), log
+
+
 @case('記号: NOROOM は ROOM より強い')
 def _():
     rules = RULES.replace('# ROOM 事務室    C-1', 'ROOM UP C-9')
