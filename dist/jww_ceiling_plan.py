@@ -39,6 +39,13 @@ CP932 = 'cp932'
 
 NUM = r'[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?'
 
+# 行の切り方。jwc_temp.txt の改行は CRLF なので、それだけで切る。
+# str.splitlines() は縦タブ(0x0B)やファイル分離符(0x1C-0x1E)なども
+# 改行として切ってしまう。文字の中にそういう制御文字が 1 つ混ざって
+# いるだけで、その要素が「ch x y … "」と「本文」に分断され、行ごと
+# 読めなくなる（実機で「多目的室」の行だけが落ちた原因）。
+NEWLINE = re.compile(r'\r\n|\r|\n')
+
 
 # --------------------------------------------------------------
 # 文字コードまわり
@@ -211,7 +218,7 @@ class Rules:
             'COLOR':    self.add_color,
             'SET':      self.add_setting,
         }
-        for no, line in enumerate(text.splitlines(), 1):
+        for no, line in enumerate(NEWLINE.split(text), 1):
             if not self.is_directive(line):
                 continue
             parts = line.strip().split(None, 1)
@@ -376,7 +383,7 @@ class Reader:
         self.state = {}
 
     def parse(self, text):
-        for raw in text.splitlines():
+        for raw in NEWLINE.split(text):
             s = raw.strip()
             if not s or s.startswith('#'):
                 continue

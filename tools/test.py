@@ -471,6 +471,23 @@ def _():
     assert re.search(r'多 … 1 個.*例: 多目的室', log), log
 
 
+@case('文字の中に制御文字があっても行を分断しない')
+def _():
+    # 概要表の「多目的室」の頭に縦タブが 1 つ混ざった状況
+    # （実機でこの行だけ要素として読めず、上下の行を汚していた）
+    plan = plan_3f().replace('0 "多目的室', '0 "\x0b多目的室', 1)
+    assert '\x0b' in plan
+    rc, out, log, _ = run(plan)
+    assert rc == 0, log
+    assert '多 … 1 個' not in log, f'行が分断されている\n{log}'
+    body = log.split('室名と記号の対応')[1].split('\n\n')[0]
+    m = re.search(r'(?m)^\s*多目的室\s+(\S+)\s+レイヤ', body)
+    assert m, f'多目的室 が読めていない\n{body}'
+    # 正面玄関・事務室と同じ仕上なので、同じ記号にまとまること
+    n = re.search(r'(?m)^\s*正面玄関\s+(\S+)\s+レイヤ', body)
+    assert m.group(1) == n.group(1), f'多目的室={m.group(1)} 正面玄関={n.group(1)}'
+
+
 @case('記号: NOROOM は ROOM より強い')
 def _():
     rules = RULES.replace('# ROOM 事務室    C-1', 'ROOM UP C-9')
