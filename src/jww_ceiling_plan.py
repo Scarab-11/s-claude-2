@@ -107,7 +107,7 @@ class Rules:
         # 記号を四角の枠で囲む  on / off
         'SYMBOL_BOX':   'on',
         # 枠と文字とのすき間(図寸mm)
-        'SYMBOL_BOX_PAD': '1.0',
+        'SYMBOL_BOX_PAD': '0.5',
         # 枠の線色  same = 記号と同じ / 例 5
         'SYMBOL_BOX_COLOR': 'same',
         # 凡例の書き出し  all = 全部 / used = 使った記号だけ / no = 書かない
@@ -467,8 +467,10 @@ class CeilingPlan:
         kept = self.process_texts(kept)
         body = kept + self.place_symbols(kept)
         if not body:
-            raise ValueError('天井伏図にする要素がありません。'
-                             'ルールファイルの KEEP / DROP を見直してください。')
+            raise ValueError('天井伏図にする要素がありません。選択したデータの'
+                             f'レイヤは {self.layer_list()} です。'
+                             '天伏図ルール.txt の KEEP / DROP をこの番号に'
+                             '合わせてください。')
 
         dx, dy = self.offset(body)
         out = [self.move(el, dx, dy) for el in body]
@@ -483,6 +485,23 @@ class CeilingPlan:
             else:
                 self.bump('layer_dropped')
         return kept
+
+    def layer_summary(self):
+        """選択したデータのレイヤ別内訳。KEEP / DROP に書く番号はこれで調べる。"""
+        tally = {}
+        for el in self.doc.elements:
+            t = tally.setdefault((el['lg'], el['ly']), [0, 0])
+            t[1 if el['type'] == 'text' else 0] += 1
+        lines = []
+        for (lg, ly), (fig, txt) in sorted(tally.items()):
+            mark = '残す' if self.rules.keep_layer(lg, ly) else '除外'
+            lines.append(f'  {lg:x}:{ly:x}   線・円 {fig:4d}   文字 {txt:4d}   {mark}')
+        return lines
+
+    def layer_list(self):
+        """1行で並べたレイヤ番号。エラーの文面に入れる。"""
+        seen = sorted({(el['lg'], el['ly']) for el in self.doc.elements})
+        return ' '.join(f'{lg:x}:{ly:x}' for lg, ly in seen)
 
     # --- 2. 文字の削除と置換 -----------------------------------
     def process_texts(self, elements):
@@ -901,6 +920,8 @@ def main():
     try:
         elements = plan.build()
     except ValueError as e:
+        # レイヤの内訳を見れば直せることが多いので、失敗時もログは残す。
+        write_log(rpath, doc, plan, 0)
         abort_with(temp, str(e))
 
     writer = Writer(doc.rel_ch)
@@ -927,7 +948,10 @@ def write_log(rpath, doc, plan, written):
         f"記号の枠       : {c.get('symbol_boxes', 0)}",
         f"凡例の行数     : {c.get('legend_rows', 0)}",
         f'書き出した要素 : {written}',
+        '',
+        'レイヤ別の内訳（KEEP / DROP に書く番号はここで調べます）',
     ]
+    lines += plan.layer_summary()
     if doc.skipped:
         lines.append('')
         lines.append('対応していない要素があったため、複写されませんでした:')
