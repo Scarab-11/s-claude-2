@@ -542,6 +542,7 @@ class CeilingPlan:
         self.unknown = []         # ROOM に無かった室名
         self.assign = {}          # 室名 => 記号
         self.symbol_layers = {}   # 記号 => (レイヤグループ, レイヤ)
+        self.table_seen = []      # 表から読んだ [行の見出し, 仕上]
         self.auto_legend = []     # 自動で作った仕上表の行
         self.assign_note = []     # ログ用の内訳
         self.counts = {}
@@ -1068,6 +1069,13 @@ class CeilingPlan:
                             f'読みました（{len(table)}室）。')
         return table
 
+    def table_report(self, layer, rows, texts):
+        """表から何をどう読んだかの控え。仕上が読めない室が出たときに使う。"""
+        self.table_seen = []
+        for _, el in rows:
+            self.table_seen.append((el['str'].strip(),
+                                    texts.get(id(el), '')))
+
     @staticmethod
     def match_names(text, names):
         """表のセルの文字が、図面のどの室名を指しているかを返す。
@@ -1129,7 +1137,9 @@ class CeilingPlan:
                     found[id(el)].append((-oy, ox, s))
                     break         # 表の外（表題など）はどの行にも入らない
 
-        return {k: ' '.join(s for _, _, s in sorted(v)) for k, v in found.items()}
+        texts = {k: ' '.join(s for _, _, s in sorted(v)) for k, v in found.items()}
+        self.table_report(layer, rows, texts)
+        return texts
 
     @staticmethod
     def row_bounds(ys):
@@ -1690,6 +1700,17 @@ def write_log(rpath, doc, plan, written):
             where = f'レイヤ {at[0] if at[0] is not None else 0:x}:{at[1]:x}  ' \
                 if at else ''
             lines.append(f'  {pad(n, width)}  {s:6} {where}{why}')
+    # 仕上が読めなかった室があるときは、表から何をどう読んだかを並べる。
+    # 「表には書いてあるのに読めていない」を突き止められるようにするため。
+    missing = [n for n, s_, why in plan.assign_note if why == '自動採番']
+    if missing and plan.table_seen:
+        lines.append('')
+        lines.append('仕上が読めなかった室があります: ' + ' / '.join(missing))
+        lines.append('表からはこう読めています（左＝行の見出し、右＝仕上）。')
+        lines.append('右が空の行は、その行の右側に文字を見つけられていません。')
+        width = min(24, max(disp_width(a) for a, _ in plan.table_seen))
+        for label, text in plan.table_seen:
+            lines.append(f'  {pad(label, width)}  {text or "（読めず）"}')
     if plan.unknown:
         default = plan.rules['ROOM_DEFAULT'].strip()
         lines.append('')

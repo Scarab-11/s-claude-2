@@ -435,6 +435,17 @@ def _():
     assert not blank, f'仕上が読めていない室がある: {blank}'
 
 
+@case('記号: 仕上が読めない室があれば表の読み取り結果を出す')
+def _():
+    plan = plan_3f().replace('ch 1000 6000 1200 0 "正面玄関',
+                             'ch 1000 6000 1200 0 "正面玄関\nch 16000 6000 600 0 "US')
+    rc, out, log, _ = run(plan)
+    assert rc == 0, log
+    assert '仕上が読めなかった室があります: US' in log, log
+    # 表の各行について、見出しと読み取れた仕上が並ぶこと
+    assert re.search(r'(?m)^  多目的室\s+軽天下地 岩綿吸音板', log), log
+
+
 @case('記号: NOROOM は ROOM より強い')
 def _():
     rules = RULES.replace('# ROOM 事務室    C-1', 'ROOM UP C-9')
