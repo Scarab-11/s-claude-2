@@ -96,6 +96,10 @@ class Rules:
         'DEFAULT':      'keep',
         # 室名照合  exact = 完全一致のみ / prefix = 前方一致も見る
         'ROOM_MATCH':   'prefix',
+        # 部屋名が入っているレイヤ  off = ROOM に書いた室名だけを拾う
+        'ROOM_LAYER':   'off',
+        # ROOM に無い室名に置く記号  no = 置かない
+        'ROOM_DEFAULT': 'C-?',
         # 記号の文字種(1-10)
         'SYMBOL_CN':    '3',
         # 室名の基準線から記号の基準線までの距離(図寸mm)
@@ -144,6 +148,7 @@ class Rules:
         self.legend = []          # [記号, 説明] 記述順
         self.colors = []          # [(lg, ly), 線番号]
         self.droptext = []        # 正規表現
+        self.noroom = []          # 部屋名レイヤにあっても室名でないもの
         self.retext = []          # [正規表現, 置換後]
         self.settings = dict(self.DEFAULTS)
         self.errors = []
@@ -169,6 +174,7 @@ class Rules:
             'ROOM':     self.add_room,
             'LEGEND':   self.add_legend,
             'DROPTEXT': lambda rest, no: self.add_regexp(self.droptext, rest, no),
+            'NOROOM':   lambda rest, no: self.add_regexp(self.noroom, rest, no),
             'RETEXT':   self.add_retext,
             'COLOR':    self.add_color,
             'SET':      self.add_setting,
@@ -498,9 +504,10 @@ class Doc:
 class CeilingPlan:
     def __init__(self, doc, rules):
         self.doc = doc
-        self.rules = rules
+        self.rules = rules      # ログでも参照する
         self.log = []
         self.used = []            # 実際に置いた記号
+        self.unknown = []         # ROOM に無かった室名
         self.counts = {}
         spec = (rules['SCALE'] or '').strip().lower()
         self.scale_fixed = None if spec in ('', 'auto') else to_num(spec)
@@ -863,7 +870,7 @@ class CeilingPlan:
         for el in elements:
             if el['type'] != 'text':
                 continue
-            sym = self.lookup_room(el['str'])
+            sym = self.room_symbol(el)
             if sym is None:
                 continue
 
@@ -887,6 +894,32 @@ class CeilingPlan:
                 self.used.append(sym)
             self.bump('symbols')
         return out
+
+    def room_symbol(self, el):
+        """この文字に置く記号。ROOM に無くても、部屋名レイヤの文字なら
+        仮記号を置く。室が増えるたびにルールファイルを直さずに済ませ、
+        書き漏らしを図面上で見つけられるようにするため。"""
+        sym = self.lookup_room(el['str'])
+        if sym is not None:
+            return sym
+        if not self.on_room_layer(el):
+            return None
+        text = el['str'].strip()
+        if not text or any(p.search(text) for p in self.rules.noroom):
+            return None
+        default = self.rules['ROOM_DEFAULT'].strip()
+        if not default or default.lower() in ('no', 'off'):
+            return None
+        if text not in self.unknown:
+            self.unknown.append(text)
+        return default
+
+    def on_room_layer(self, el):
+        spec = self.rules['ROOM_LAYER'].strip()
+        if spec.lower() in ('off', 'no', ''):
+            return False
+        target = Rules.layer_spec(spec)
+        return target is not None and Rules.match_any([target], el['lg'], el['ly'])
 
     def lookup_room(self, text):
         key = normalize_key(text)
@@ -1276,7 +1309,8 @@ def write_log(rpath, doc, plan, written):
         f"作った壁線     : {c.get('walls', 0)}",
         f"文字を削除     : {c.get('text_dropped', 0)}",
         f"文字を置換     : {c.get('text_replaced', 0)}",
-        f"置いた記号     : {c.get('symbols', 0)}",
+        f"置いた記号     : {c.get('symbols', 0)}"
+        + (f"  （うち仮記号 {len(plan.unknown)}）" if plan.unknown else ''),
         f"記号の枠       : {c.get('symbol_boxes', 0)}",
         f"凡例の行数     : {c.get('legend_rows', 0)}",
         f'書き出した要素 : {written}',
@@ -1284,6 +1318,15 @@ def write_log(rpath, doc, plan, written):
         'レイヤ別の内訳（KEEP / DROP に書く番号はここで調べます）',
     ]
     lines += plan.layer_summary()
+    if plan.unknown:
+        default = plan.rules['ROOM_DEFAULT'].strip()
+        lines.append('')
+        lines.append(f'ROOM に登録の無い室名です（仮に {default} を置きました）。')
+        lines.append('下の行を 天伏図ルール.txt の ROOM の並びに貼り付けて、')
+        lines.append('記号を正しいものに書き換えてください。')
+        lines.append('')
+        width = max(len(n) for n in plan.unknown)
+        lines += [f'ROOM {n.ljust(width)}  {default}' for n in plan.unknown]
     if doc.skipped:
         lines.append('')
         lines.append('対応していない要素があったため、複写されませんでした:')
