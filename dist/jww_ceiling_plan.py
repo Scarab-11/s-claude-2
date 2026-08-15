@@ -1744,6 +1744,7 @@ def write_log(rpath, doc, plan, written):
         f"作った壁線     : {c.get('walls', 0)}",
         f"文字を削除     : {c.get('text_dropped', 0)}",
         f"文字を置換     : {c.get('text_replaced', 0)}",
+        f"線色を変更     : {c.get('recolored', 0)}",
         f"置いた記号     : {c.get('symbols', 0)}"
         + (f"  （うち仮記号 {len(plan.unknown)}）" if plan.unknown else ''),
         f"記号の枠       : {c.get('symbol_boxes', 0)}",
