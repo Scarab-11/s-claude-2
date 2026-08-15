@@ -849,14 +849,16 @@ class CeilingPlan:
         return a
 
     def layer_tally(self):
-        """レイヤごとに 線の数 / 文字の数 / 線の長さの幅 / 文字の例 を集める。
+        """レイヤごとに 線・点・円弧・文字の数 / 線の長さの幅 / 文字の例 を集める。
 
         線の長さを見ると、壁の中心線(長い)・基準線(通り芯なので図より長い)・
         建具や柱(短い)の区別がつく。文字の例を見れば部屋名のレイヤが分かる。
+        線・点・円弧を分けて数えるのは、寸法線の線端の印（実点）のように、
+        線ではなく点や円弧で描かれているものを見分けるため。
         """
         def blank():
-            return {'fig': 0, 'txt': 0, 'other': 0, 'len': [], 'sample': [],
-                    'lt': {}}
+            return {'line': 0, 'point': 0, 'arc': 0, 'fig': 0, 'txt': 0,
+                    'other': 0, 'zero': 0, 'len': [], 'sample': [], 'lt': {}}
 
         tally = {}
         for key, n in self.doc.skipped_at.items():
@@ -868,12 +870,16 @@ class CeilingPlan:
                 if len(t['sample']) < 3 and el['str'].strip():
                     t['sample'].append(el['str'].strip())
             else:
+                t[el['type']] += 1
                 t['fig'] += 1
                 lt = (el['attr'].get('lt') or 'lt1')[2:]
                 t['lt'][lt] = t['lt'].get(lt, 0) + 1
                 if el['type'] == 'line':
                     n = el['nums']
-                    t['len'].append(math.hypot(n[2] - n[0], n[3] - n[1]))
+                    length = math.hypot(n[2] - n[0], n[3] - n[1])
+                    t['len'].append(length)
+                    if length < EPS:
+                        t['zero'] += 1
         return tally
 
     def layer_summary(self):
@@ -881,7 +887,12 @@ class CeilingPlan:
         lines = []
         for (lg, ly), t in sorted(self.layer_tally().items()):
             mark = '残す' if self.rules.keep_layer(lg, ly) else '除外'
-            row = f"  {lg:x}:{ly:x}   線 {t['fig']:4d}   文字 {t['txt']:4d}   {mark}"
+            row = f"  {lg:x}:{ly:x}   線 {t['line']:4d}"
+            if t['point']:
+                row += f"   点 {t['point']}"
+            if t['arc']:
+                row += f"   円 {t['arc']}"
+            row += f"   文字 {t['txt']:4d}   {mark}"
             if t['other']:
                 row += f"   ★扱えない要素 {t['other']}"
             if t['lt']:
@@ -889,6 +900,8 @@ class CeilingPlan:
                 row += '   線種 ' + ' '.join(f'{k}x{v}' for k, v in order[:3])
             if t['len']:
                 row += f"   長さ {fmt(min(t['len']))}〜{fmt(max(t['len']))}"
+                if t['zero']:
+                    row += f"（長さ0が{t['zero']}）"
             if t['sample']:
                 row += f"   文字の例 {' / '.join(t['sample'])}"
             lines.append(row)

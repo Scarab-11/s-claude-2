@@ -268,6 +268,24 @@ def _():
     assert '0:f' in out and '0:2' in out, f'実際のレイヤ番号が出ていない: {out}'
 
 
+@case('レイヤ: 線・点・円弧を分けて数える')
+def _():
+    # 寸法線の線端の印（実点）が点／円弧／長さ0の線のどれで出ているかを
+    # 見分けられないと調査できない、という実機での指摘を受けて追加
+    plan = (PLAN_1F + 'lg0\nly8\nlc2\n'
+            '1000 1000 2000 1000\n1000 1000 1000 1000\n'
+            'pt 3000 3000\nci 4000 4000 50\n')
+    rc, out, log, _ = run(plan)
+    assert rc == 0, log
+    row = re.search(r'(?m)^  0:8   .*$', log)
+    assert row, f'0:8 の行が無い\n{log}'
+    row = row.group(0)
+    assert '線    2' in row, f'線の数が違う: {row}'
+    assert '点 1' in row, f'点の数が出ていない: {row}'
+    assert '円 1' in row, f'円弧の数が出ていない: {row}'
+    assert '長さ0が1' in row, f'長さ0の線が分かるようになっていない: {row}'
+
+
 @case('レイヤ: ソリッドやブロックを属性と誤認しない')
 def _():
     plan = PLAN_1F + 'ly9\nsl 100 100 200 200 300 300\nbl 1 0 0 1 0 0 "図形\n'
