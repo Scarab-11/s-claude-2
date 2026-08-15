@@ -656,6 +656,23 @@ def _():
     assert len(set(flat)) == len(flat), f'記号が同じレイヤに載っている: {seen}'
 
 
+@case('レイヤ分け: 中身の入っているレイヤを飛ばす')
+def _():
+    # 寸法線(0:8)を残す設定にすると、記号が 0:3 から順に取っていって
+    # 0:8 でぶつかっていた。記号の数は計画によって増減するので、
+    # 中身の入っているレイヤは自動で飛ばす。
+    rules = RULES.replace('KEEP 0:d ', 'KEEP 0:8      寸法線\nKEEP 0:d ')
+    plan = PLAN_1F + 'lg0\nly8\nlc2\n1000 1000 2000 1000\n'
+    rc, out, log, _ = run(plan, rules)
+    assert rc == 0, log
+    assert re.search(r'記号のレイヤは .*0:8.* を飛ばしました', log), \
+        f'0:8 を飛ばした記録が無い\n{log}'
+    body = log.split('室名と記号の対応')[1].split('\n\n')[0]
+    assert 'レイヤ 0:8' not in body, f'記号が寸法線のレイヤに載っている\n{body}'
+    # 仕上表のレイヤ(0:c)にも載らないこと
+    assert 'レイヤ 0:c' not in body, f'記号が仕上表のレイヤに載っている\n{body}'
+
+
 @case('レイヤ分け: 使うレイヤを並べて指定できる')
 def _():
     rules = RULES.replace('SET SYMBOL_LAYERS\n', 'SET SYMBOL_LAYERS 0:4 0:6 0:7 0:b\n')

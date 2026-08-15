@@ -1025,9 +1025,9 @@ class CeilingPlan:
             self.auto_legend.append((sym, finish or f'（{display[key]}）'))
             self.unknown.append(display[key])
 
-        self.build_symbol_layers()
+        self.build_symbol_layers(elements)
 
-    def build_symbol_layers(self):
+    def build_symbol_layers(self, elements=()):
         """記号(天井仕上)ごとにレイヤを割り当てる。
 
         C-1 を SYMBOL_LAYER のレイヤに置き、C-2 以降は 1 つずつ後ろの
@@ -1045,7 +1045,7 @@ class CeilingPlan:
         # C-1、C-2 … と番号順に並べる。並びが飛んでも順番は保つ。
         order.sort(key=lambda s: (int(m.group(1)) if (m := re.search(r'(\d+)', s))
                                   else 9999, s))
-        slots = self.symbol_layer_slots(len(order))
+        slots = self.symbol_layer_slots(len(order), elements)
         if not slots:
             return
         for i, sym in enumerate(order):
@@ -1058,24 +1058,45 @@ class CeilingPlan:
             self.log.append('   SET SYMBOL_LAYERS にレイヤを並べて指定するか、'
                             'SET SYMBOL_LAYER をもっと若い番号にしてください。')
 
-    def symbol_layer_slots(self, want):
+    def occupied_layers(self, elements):
+        """すでに中身が入っているレイヤ。記号を重ねてはいけない先。
+
+        平面図から写した要素のレイヤと、仕上表の枠を書くレイヤ。
+        記号の数は計画によって増減するので、ここを避けて番号を取らないと、
+        室が増えたときに寸法線などと重なってしまう。
+        """
+        used = {(el['lg'], el['ly']) for el in elements}
+        legend = Rules.layer_spec(self.rules['LEGEND_LAYER'])
+        if legend and legend[1] is not None:
+            used.add(legend)
+        return used
+
+    def symbol_layer_slots(self, want, elements=()):
         """記号ごとに使うレイヤの並び。
 
         SYMBOL_LAYERS に書いてあればその順に使う。図面の空きレイヤが
         飛び飛びのときは、こちらで並べた方が確実。
-        書いていなければ SYMBOL_LAYER から後ろへ順に取る。
+        書いていなければ SYMBOL_LAYER から後ろへ、中身の入っている
+        レイヤを飛ばしながら順に取る。
         """
         listed = [Rules.layer_spec(t)
                   for t in self.rules['SYMBOL_LAYERS'].split()]
         listed = [(lg, ly) for spec in listed if spec
                   for lg, ly in [spec] if ly is not None]
         if listed:
-            return listed
+            return listed         # 手で並べた指定はそのまま使う
         base = Rules.layer_spec(self.rules['SYMBOL_LAYER'])
         if base is None or base[1] is None:
             return []             # same のときは分けようがない
         lg, ly = base
-        return [(lg, n) for n in range(ly, min(ly + want, 16))]
+        used = self.occupied_layers(elements)
+        free = [(lg, n) for n in range(ly, 16) if (lg, n) not in used]
+        if skipped := [f'{lg:x}:{n:x}' for n in range(ly, 16)
+                       if (lg, n) in used]:
+            self.log.append('')
+            self.log.append(f'記号のレイヤは {" ".join(skipped)} を飛ばしました'
+                            '（すでに中身が入っているため）。')
+        return free[:want]
 
     def next_symbol_no(self, prefix):
         """空いている番号の先頭。ルールに書いた記号とぶつからないようにする。"""
