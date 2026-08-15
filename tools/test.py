@@ -472,6 +472,34 @@ def _():
     assert re.search(r'多 … 1 個.*例: 多目的室', log), log
 
 
+@case('寸法値(cs)が数字として書き出される')
+def _():
+    # 実機のログで、寸法線のレイヤに cs/msg が同数(60/60)出ており、
+    # 寸法の数字が複写されていなかった。cs は ch と同じ形の文字行、
+    # msg はその直前に付く中身の無い印だった。
+    plan = PLAN_1F + 'lg0\nly8\nlc2\ncn3\nmsg\ncs 1000 1000 300 0 "900\n'
+    rc, out, log, _ = run(plan)
+    assert rc == 0, log
+    assert 'msg' not in log, f'msg が未対応のまま\n{log}'
+    assert 'cs …' not in log, f'cs が未対応のまま\n{log}'
+    assert re.search(r'(?m)^ch .*"900\r?$', out), f'寸法値が書き出されていない\n{out}'
+
+
+@case('COLOR: 種類を指定するとそこだけ変わる')
+def _():
+    # 寸法線: 数字(cs)と点(pt)だけ線色6にして、線(1000 1000 2000 1000)は
+    # 元の線色2のまま残ること
+    plan = (PLAN_1F + 'lg0\nly8\nlc2\ncn3\nlt1\n'
+            'cs 1000 1000 300 0 "900\n1000 1000 2000 1000\npt 3000 3000\n')
+    rc, out, log, _ = run(plan)
+    assert rc == 0, log
+    assert re.search(r'(?m)^lc6\r?\n(?:cn\d\r?\n)?ch [^\r\n]*"900\r?$', out), \
+        f'数字が線色6になっていない\n{out}'
+    assert re.search(r'(?m)^lc2\r?\n[\d.-]+ [\d.-]+ [\d.-]+ [\d.-]+\r?\nlc6\r?\npt ',
+                     out), \
+        f'線が線色2のまま・点が線色6になっていない\n{out}'
+
+
 @case('文字の中に制御文字があっても行を分断しない')
 def _():
     # 概要表の「多目的室」の頭に縦タブが 1 つ混ざった状況

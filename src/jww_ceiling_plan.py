@@ -166,7 +166,7 @@ class Rules:
         self.rooms = {}           # 正規化した室名 => 記号
         self.room_bases = {}      # 枝番を取った室名 => 記号
         self.legend = []          # [記号, 説明] 記述順
-        self.colors = []          # [(lg, ly), 線番号]
+        self.colors = []          # [((lg, ly), 線番号, 種類 or None)]
         self.droptext = []        # 正規表現
         self.noroom = []          # 部屋名レイヤにあっても室名でないもの
         self.retext = []          # [正規表現, 置換後]
@@ -250,8 +250,12 @@ class Rules:
             return int(s)
         return None
 
+    COLOR_TYPES = {'text', 'line', 'point', 'arc'}
+
     def add_color(self, rest, no):
-        """COLOR 0:3 5 … そのレイヤの線色を書き換えて写す"""
+        """COLOR 0:3 5 … そのレイヤの線色を書き換えて写す
+        COLOR 0:8 6 text … 末尾に text/line/point/arc を付けると、
+        その種類の要素だけ色を変える（省略時は全部）"""
         parts = rest.split() if rest else []
         if len(parts) < 2 or not re.fullmatch(r'\d+', parts[1]):
             self.errors.append(f'{no}行目: COLOR は「レイヤ 線番号」の形で書きます')
@@ -260,7 +264,12 @@ class Rules:
         if spec is None:
             self.errors.append(f'{no}行目: レイヤの指定が読めません ({parts[0]})')
             return
-        self.colors.append((spec, parts[1]))
+        only = parts[2].lower() if len(parts) > 2 else None
+        if only is not None and only not in self.COLOR_TYPES:
+            self.errors.append(f'{no}行目: COLOR の種類は '
+                               f'text/line/point/arc のどれかです ({parts[2]})')
+            return
+        self.colors.append((spec, parts[1], only))
 
     def add_room(self, rest, no):
         parts = rest.split() if rest else []
@@ -357,12 +366,14 @@ class Rules:
 #     pt x y                     点
 #     ci cx cy r [開始角 終了角 …]  円・円弧
 #     ch x y f3 f4 "文字列        文字
+#     cs x y f3 f4 "文字列        文字（寸法値。寸法線の数字はこの形で出る）
 #   属性
 #     lg? ly? lc? lt? cn? …      直前までの状態が要素に効く
+#     msg                        寸法値の直前に付く印。中身を持たない
 #   図面情報
 #     h で始まる行
 # --------------------------------------------------------------
-RE_CH = re.compile(rf'ch\s+({NUM})\s+({NUM})\s+({NUM})\s+({NUM})\s+(.*)\Z', re.S)
+RE_CH = re.compile(rf'c[hs]\s+({NUM})\s+({NUM})\s+({NUM})\s+({NUM})\s+(.*)\Z', re.S)
 RE_CI = re.compile(r'ci\s+(.*)\Z')
 RE_PT = re.compile(rf'pt\s+({NUM})\s+({NUM})\s*\Z')
 RE_LINE = re.compile(rf'({NUM})\s+({NUM})\s+({NUM})\s+({NUM})\s*\Z')
@@ -395,6 +406,8 @@ class Reader:
                 self.elements.append(el)
             elif self.ATTR_LINE.match(s):
                 self.read_attribute(s)
+            elif s == 'msg':
+                pass       # 寸法値(cs)の直前に付く印。中身が無いので読み捨てる
             elif self.continue_text(s):
                 pass
             else:
@@ -609,12 +622,15 @@ class CeilingPlan:
 
     def recolor(self, elements):
         """COLOR で指定したレイヤの線色を差し替える。すでに壁線が描いてある
-        図面で、その線色だけを変えたいときに使う。"""
+        図面で、その線色だけを変えたいときに使う。末尾に text/line/point/arc
+        が付いていれば、その種類の要素だけ変える。"""
         if not self.rules.colors:
             return elements
         out = []
         for el in elements:
-            for spec, color in self.rules.colors:
+            for spec, color, only in self.rules.colors:
+                if only is not None and only != el['type']:
+                    continue
                 if Rules.match_any([spec], el['lg'], el['ly']):
                     el = {**el, 'attr': {**el['attr'], 'lc': f'lc{color}'}}
                     self.bump('recolored')
