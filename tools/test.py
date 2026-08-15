@@ -286,6 +286,31 @@ def _():
     assert '長さ0が1' in row, f'長さ0の線が分かるようになっていない: {row}'
 
 
+@case('点: pn（実点の種類）を写す')
+def _():
+    # pn は一度書くと以降の点にずっと効く属性。実データでは点89個に対して
+    # pn6 が1行だけ出ており、これを読み捨てていたため写した点が実点で
+    # なくなっていた（線色の指定も効いていないように見えた）。
+    plan = PLAN_1F + 'lg0\nly8\nlc2\npn6\npt 3000 3000\n'
+    rc, out, log, _ = run(plan)
+    assert rc == 0, log
+    assert 'pn …' not in log, f'pn が未対応のまま\n{log}'
+    # 点より前に出ていること（座標は作図位置へずれるので数値は見ない）
+    assert re.search(r'(?m)^pn6\r?\npt [\d.-]+ [\d.-]+\r?$', out), \
+        f'pn6 が点の直前に出ていない\n{out}'
+
+
+@case('点: COLOR で実点の線色を変えても pn が残る')
+def _():
+    rules = RULES + '\nCOLOR 0:8 6 point\n'
+    plan = PLAN_1F + 'lg0\nly8\nlc2\npn6\npt 3000 3000\n'
+    rc, out, log, _ = run(plan, rules)
+    assert rc == 0, log
+    m = re.search(r'(?m)^(?:(?:lc6|pn6|cn\d)\r?\n)+pt [\d.-]+ [\d.-]+\r?$', out)
+    assert m, f'lc6 と pn6 が揃って点の前に出ていない\n{out}'
+    assert 'lc6' in m.group(0) and 'pn6' in m.group(0), m.group(0)
+
+
 @case('レイヤ: ソリッドやブロックを属性と誤認しない')
 def _():
     plan = PLAN_1F + 'ly9\nsl 100 100 200 200 300 300\nbl 1 0 0 1 0 0 "図形\n'

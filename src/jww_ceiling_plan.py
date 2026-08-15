@@ -419,8 +419,7 @@ class Reader:
     # 「多目的室」はこの形で、1行目が空文字の ch、2行目が本文だった）。
     # 直前の要素が文字で、この行が英字始まりでない（＝知っている命令の
     # 名前ではない）ときだけ、その文字の続きとみなしてつなげる。
-    # msg / cs / cn / pn / cv のような未対応の命令は英字始まりなので
-    # ここには来ない。
+    # msg / cv のような未対応の命令は英字始まりなので、ここには来ない。
     def continue_text(self, s):
         if not self.elements or self.elements[-1]['type'] != 'text':
             return False
@@ -432,7 +431,12 @@ class Reader:
     # 属性として扱う行。これ以外の小文字始まりの行(ソリッド sl、
     # ブロック bl など)は、属性ではなく「対応していない要素」として数える。
     # 属性のつもりで取り込むと、書き出しのときにそのまま出てしまう。
-    ATTR_LINE = re.compile(r'(?:lg|ly|lc|lt|cn)[0-9a-fA-F]')
+    #
+    # pn は点の種類（実点/仮点と大きさ）。一度書くと以降の点にずっと効く
+    # ので、実データでは点89個に対して pn6 が1行だけ出ていた。これを
+    # 読み捨てていたため、写した点が実点でなくなり、線色の指定も
+    # 効いていないように見えていた。
+    ATTR_LINE = re.compile(r'(?:lg|ly|lc|lt|cn|pn)[0-9a-fA-F]')
 
     def skip(self, s):
         key = re.match(r'[A-Za-z]{1,3}|.', s).group(0)
@@ -1586,7 +1590,7 @@ class CeilingPlan:
 # 書き出し
 # --------------------------------------------------------------
 class Writer:
-    ATTR_ORDER = ['lg', 'ly', 'lc', 'lt', 'cn']
+    ATTR_ORDER = ['lg', 'ly', 'lc', 'lt', 'cn', 'pn']
 
     def __init__(self, rel_ch):
         self.rel = rel_ch
