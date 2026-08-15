@@ -426,7 +426,7 @@ class Reader:
         self.skipped[key] = self.skipped.get(key, 0) + 1
         # 中身も 1 行だけ控える。見慣れない行が出たときに、それが何なのかを
         # ログだけで判断できるようにするため。
-        self.skipped_sample.setdefault(key, s[:60])
+        self.skipped_sample.setdefault(key, s[:200])
         at = (self.layer_no('lg'), self.layer_no('ly'))
         self.skipped_at[at] = self.skipped_at.get(at, 0) + 1
 
@@ -1764,7 +1764,7 @@ def write_log(rpath, doc, plan, written):
         for k, v in doc.skipped.items():
             row = f'  {k} … {v} 個'
             sample = doc.skipped_sample.get(k, '')
-            if sample and not re.fullmatch(r'[A-Za-z]{1,3}', k):
+            if sample:
                 row += f'   例: {sample}'
             lines.append(row)
     lines += plan.log
