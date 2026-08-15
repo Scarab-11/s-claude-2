@@ -448,9 +448,9 @@ def _():
 
 @case('記号: 表の行が1つ欠けても隣の行を汚さない')
 def _():
-    # 概要表の「多目的室」の行の見出しだけが読めなかった状況を作る
-    # （実機で、その行だけ要素として読めていない例があった）
-    plan, n = re.subn(r'(?m)^ch -\d+ \d+ \d+ 0 "多目的室$', '多目的室', plan_3f())
+    # 概要表の「多目的室」の行の見出しがまるごと無い状況を作る
+    # （複数行の文字とは別に、行そのものが欠けることもありうる）
+    plan, n = re.subn(r'(?m)^ch -\d+ \d+ \d+ 0 "多目的室\n', '', plan_3f())
     assert n == 1, f'置き換えられていない: {n}'
     rc, out, log, _ = run(plan)
     assert rc == 0, log
@@ -465,7 +465,8 @@ def _():
 
 @case('診断: 読めなかった行の中身をログに出す')
 def _():
-    plan = PLAN_1F + 'ly9\n多目的室\n'
+    # 文字の直後でなければ、英字で始まらない行でも継続行とはみなさない
+    plan = PLAN_1F + 'ly9\n0 0 0 0\n多目的室\n'
     rc, out, log, _ = run(plan)
     assert rc == 0, log
     assert re.search(r'多 … 1 個.*例: 多目的室', log), log
@@ -486,6 +487,24 @@ def _():
     # 正面玄関・事務室と同じ仕上なので、同じ記号にまとまること
     n = re.search(r'(?m)^\s*正面玄関\s+(\S+)\s+レイヤ', body)
     assert m.group(1) == n.group(1), f'多目的室={m.group(1)} 正面玄関={n.group(1)}'
+
+
+@case('概要表の室名が2行の文字でも読める')
+def _():
+    # 実機の「多目的室」がこの形だった。1行目が空文字の ch、2行目に
+    # 見出しなしで本文が続く（Jw_cad で文字中に Enter を入れた形）。
+    plan, n = re.subn(r'(?m)^(ch -15700 \d+ 1200 0 ")多目的室$',
+                      r'\1\n多目的室', plan_3f())
+    assert n == 1, f'置き換えられていない: {n}'
+    rc, out, log, _ = run(plan)
+    assert rc == 0, log
+    assert '多 … 1 個' not in log, f'2行目が読めていない\n{log}'
+    body = log.split('室名と記号の対応')[1].split('\n\n')[0]
+    m = re.search(r'(?m)^\s*多目的室\s+(\S+)\s+レイヤ \S+\s+(仕上表:|同じ天井仕上)', body)
+    assert m, f'多目的室 の仕上が読めていない\n{body}'
+    n = re.search(r'(?m)^\s*正面玄関\s+(\S+)\s+レイヤ', body)
+    assert m.group(1) == n.group(1), \
+        f'多目的室={m.group(1)} 正面玄関={n.group(1)}（同じ仕上のはず）'
 
 
 @case('記号: NOROOM は ROOM より強い')

@@ -395,9 +395,26 @@ class Reader:
                 self.elements.append(el)
             elif self.ATTR_LINE.match(s):
                 self.read_attribute(s)
+            elif self.continue_text(s):
+                pass
             else:
                 self.skip(s)
         return self
+
+    # 文字の中に Enter で改行を入れると、2 行目以降は「ch …」のような
+    # 見出しが付かず、文字列だけがそのまま次の行に来る（実機の
+    # 「多目的室」はこの形で、1行目が空文字の ch、2行目が本文だった）。
+    # 直前の要素が文字で、この行が英字始まりでない（＝知っている命令の
+    # 名前ではない）ときだけ、その文字の続きとみなしてつなげる。
+    # msg / cs / cn / pn / cv のような未対応の命令は英字始まりなので
+    # ここには来ない。
+    def continue_text(self, s):
+        if not self.elements or self.elements[-1]['type'] != 'text':
+            return False
+        if re.match(r'[A-Za-z]', s):
+            return False
+        self.elements[-1]['str'] += '\n' + s
+        return True
 
     # 属性として扱う行。これ以外の小文字始まりの行(ソリッド sl、
     # ブロック bl など)は、属性ではなく「対応していない要素」として数える。
