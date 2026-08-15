@@ -656,21 +656,48 @@ def _():
     assert len(set(flat)) == len(flat), f'記号が同じレイヤに載っている: {seen}'
 
 
+@case('レイヤ: KEEP => で写す先を変える')
+def _():
+    # 天井伏図の側でレイヤを並べ直す。0:8(寸法線)を 0:3 へ移す。
+    rules = RULES.replace('KEEP 0:d ', 'KEEP 0:8 => 0:3   寸法線\nKEEP 0:d ')
+    plan = PLAN_1F + 'lg0\nly8\nlc2\n1000 1000 2000 1000\n'
+    rc, out, log, _ = run(plan, rules)
+    assert rc == 0, log
+    on = {}
+    for m in re.finditer(r'(?m)^[\d.-]+ [\d.-]+ [\d.-]+ [\d.-]+\r?$', out):
+        a = attrs_before(out, m.group(0).rstrip('\r'))
+        on.setdefault((a.get('lg'), a.get('ly')), []).append(m.group(0))
+    assert ('0', '3') in on, f'0:3 に移った線が無い\n{sorted(on)}'
+    assert ('0', '8') not in on, f'0:8 に線が残っている\n{sorted(on)}'
+    # 記号は移した先(0:3)を避けること
+    body = log.split('室名と記号の対応')[1].split('\n\n')[0]
+    assert 'レイヤ 0:3' not in body, f'記号が移した先に載っている\n{body}'
+
+
+@case('レイヤ: => に * は使えないと知らせる')
+def _():
+    rc, out, log, _ = run(PLAN_1F, RULES.replace('KEEP 0:d ',
+                                                 'KEEP *:8 => 0:3\nKEEP 0:d '))
+    assert rc == 1
+    assert '* は使えません' in out, out[:200]
+
+
 @case('レイヤ分け: 中身の入っているレイヤを飛ばす')
 def _():
     # 寸法線(0:8)を残す設定にすると、記号が 0:3 から順に取っていって
     # 0:8 でぶつかっていた。記号の数は計画によって増減するので、
     # 中身の入っているレイヤは自動で飛ばす。
-    rules = RULES.replace('KEEP 0:d ', 'KEEP 0:8      寸法線\nKEEP 0:d ')
+    # 既定の並びでは 0:3 に寸法線(0:8 から移したもの)、0:4 に仕上表が
+    # 入る。記号の起点をそこに重ねても、埋まっている分は飛ばすこと。
+    rules = RULES.replace('SET SYMBOL_LAYER 0:6', 'SET SYMBOL_LAYER 0:3')
     plan = PLAN_1F + 'lg0\nly8\nlc2\n1000 1000 2000 1000\n'
     rc, out, log, _ = run(plan, rules)
     assert rc == 0, log
-    assert re.search(r'記号のレイヤは .*0:8.* を飛ばしました', log), \
-        f'0:8 を飛ばした記録が無い\n{log}'
+    assert re.search(r'記号のレイヤは .*0:3.* を飛ばしました', log), \
+        f'0:3 を飛ばした記録が無い\n{log}'
     body = log.split('室名と記号の対応')[1].split('\n\n')[0]
-    assert 'レイヤ 0:8' not in body, f'記号が寸法線のレイヤに載っている\n{body}'
-    # 仕上表のレイヤ(0:c)にも載らないこと
-    assert 'レイヤ 0:c' not in body, f'記号が仕上表のレイヤに載っている\n{body}'
+    for taken in ('レイヤ 0:3', 'レイヤ 0:4', 'レイヤ 0:5'):
+        assert taken not in body, f'記号が埋まっているレイヤに載っている: {taken}\n{body}'
 
 
 @case('レイヤ分け: 使うレイヤを並べて指定できる')
@@ -693,10 +720,22 @@ def _():
     assert len(seen) == 1, seen
 
 
-@case('レイヤ分け: 足りないときは知らせる')
+@case('レイヤ分け: 足りなければ次のグループへ続ける')
 def _():
-    rc, out, log, _ = run(PLAN_1F, RULES.replace('SET SYMBOL_LAYER 0:3',
+    # 記号が多いときは次のレイヤグループに送る（0:e → 0:f は壁芯で
+    # 埋まっているので 1:0、1:1 …）
+    rc, out, log, _ = run(PLAN_1F, RULES.replace('SET SYMBOL_LAYER 0:6',
                                                  'SET SYMBOL_LAYER 0:e'))
+    assert rc == 0, log
+    assert 'しかありません' not in log, f'足りない扱いになっている\n{log}'
+    body = log.split('室名と記号の対応')[1].split('\n\n')[0]
+    assert re.search(r'レイヤ 1:', body), f'次のグループへ続いていない\n{body}'
+
+
+@case('レイヤ分け: 本当に足りないときは知らせる')
+def _():
+    rc, out, log, _ = run(PLAN_1F, RULES.replace('SET SYMBOL_LAYER 0:6',
+                                                 'SET SYMBOL_LAYER f:e'))
     assert rc == 0
     assert 'しかありません' in log, log
 

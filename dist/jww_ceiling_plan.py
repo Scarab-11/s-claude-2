@@ -163,6 +163,7 @@ class Rules:
     def __init__(self):
         self.keep = []            # [lg, ly]  None = ワイルドカード
         self.drop = []
+        self.relayer = {}         # 写す先を変えるレイヤ (lg, ly) => (lg, ly)
         self.rooms = {}           # 正規化した室名 => 記号
         self.room_bases = {}      # 枝番を取った室名 => 記号
         self.legend = []          # [記号, 説明] 記述順
@@ -231,13 +232,30 @@ class Rules:
                 handler(rest, no)
 
     def add_layer(self, target, rest, no):
-        """「0:3」「*:5」「3」(グループ省略)を [lg, ly] にする。None = 何でも可"""
+        """「0:3」「*:5」「3」(グループ省略)を [lg, ly] にする。None = 何でも可
+
+        KEEP のときは「0:8 => 0:3」と書くと、写す先のレイヤを変えられる。
+        天井伏図の側でレイヤを並べ直したいときに使う。
+        """
         if not rest:
             self.errors.append(f'{no}行目: レイヤの指定がありません')
             return
         spec = rest.split()[0]
         lg, ly = spec.split(':', 1) if ':' in spec else ('*', spec)
-        target.append((self.parse_layer_no(lg), self.parse_layer_no(ly)))
+        src = (self.parse_layer_no(lg), self.parse_layer_no(ly))
+        target.append(src)
+        if m := re.search(r'=>\s*(\S+)', rest):
+            self.add_relayer(src, m.group(1), no)
+
+    def add_relayer(self, src, spec, no):
+        """KEEP の「=> 0:3」の部分。写す先のレイヤを覚える。"""
+        if target := self.layer_spec(spec):
+            if None in src or None in target:
+                self.errors.append(f'{no}行目: => で移す指定に * は使えません')
+                return
+            self.relayer[src] = target
+        else:
+            self.errors.append(f'{no}行目: 移す先のレイヤが読めません ({spec})')
 
     @staticmethod
     def parse_layer_no(s):
@@ -610,9 +628,22 @@ class CeilingPlan:
                              '天伏図ルール.txt の KEEP をこの番号に'
                              '合わせてください。')
 
+        # レイヤの並べ替えは最後に。こうしておくと WALL_FROM や ROOM_LAYER
+        # など他の設定は、元の図面の番号のまま書ける。
+        body = [self.relayer(el) for el in body]
         dx, dy = self.offset(body)
         out = [self.move(el, dx, dy) for el in body]
         return out + self.legend(out)
+
+    def relayer(self, el):
+        """KEEP の「=> 0:3」で指定された写し先へ移す。"""
+        at = self.rules.relayer.get((el['lg'], el['ly']))
+        if at is None:
+            return el
+        lg, ly = at
+        self.bump('relayered')
+        return {**el, 'lg': lg, 'ly': ly,
+                'attr': {**el['attr'], 'lg': f'lg{lg:x}', 'ly': f'ly{ly:x}'}}
 
     # --- 1. レイヤで残す/落とす --------------------------------
     def filter_layers(self, elements):
@@ -1065,7 +1096,9 @@ class CeilingPlan:
         記号の数は計画によって増減するので、ここを避けて番号を取らないと、
         室が増えたときに寸法線などと重なってしまう。
         """
-        used = {(el['lg'], el['ly']) for el in elements}
+        # 並べ替えたあとの番号で見る。写し先が記号とぶつからないように。
+        used = {self.rules.relayer.get((el['lg'], el['ly']), (el['lg'], el['ly']))
+                for el in elements}
         legend = Rules.layer_spec(self.rules['LEGEND_LAYER'])
         if legend and legend[1] is not None:
             used.add(legend)
@@ -1077,7 +1110,8 @@ class CeilingPlan:
         SYMBOL_LAYERS に書いてあればその順に使う。図面の空きレイヤが
         飛び飛びのときは、こちらで並べた方が確実。
         書いていなければ SYMBOL_LAYER から後ろへ、中身の入っている
-        レイヤを飛ばしながら順に取る。
+        レイヤを飛ばしながら順に取る。1 グループ(16枚)で足りなければ
+        次のレイヤグループへ続ける。
         """
         listed = [Rules.layer_spec(t)
                   for t in self.rules['SYMBOL_LAYERS'].split()]
@@ -1090,9 +1124,18 @@ class CeilingPlan:
             return []             # same のときは分けようがない
         lg, ly = base
         used = self.occupied_layers(elements)
-        free = [(lg, n) for n in range(ly, 16) if (lg, n) not in used]
-        if skipped := [f'{lg:x}:{n:x}' for n in range(ly, 16)
-                       if (lg, n) in used]:
+        free, skipped = [], []
+        for g in range(lg, 16):
+            for n in range(ly if g == lg else 0, 16):
+                if (g, n) in used:
+                    skipped.append(f'{g:x}:{n:x}')
+                else:
+                    free.append((g, n))
+                if len(free) >= want:
+                    break
+            if len(free) >= want:
+                break
+        if skipped:
             self.log.append('')
             self.log.append(f'記号のレイヤは {" ".join(skipped)} を飛ばしました'
                             '（すでに中身が入っているため）。')
