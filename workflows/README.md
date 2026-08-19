@@ -5,8 +5,12 @@
 
 | ファイル | 内容 |
 |---|---|
-| `Krea2_StyleRef_x_Structure.json` | **推奨。** depth ControlNet と img2img を切り替えられる統合版 |
-| `Krea2_StyleRef_x_DepthControlNet.json` | depth ControlNet のみの初版 |
+| `Flux2_StyleRef_x_ControlNet.json` | **推奨。** FLUX.2-dev 版。Style Reference と ControlNet を同時適用 |
+| `Krea2_StyleRef_x_Structure.json` | Krea2 版。depth ControlNet と img2img を切り替えられる統合版 |
+| `Krea2_StyleRef_x_DepthControlNet.json` | Krea2 版。depth ControlNet のみの初版 |
+| `Krea2_StyleRef_x_LineArtReference.json` | Krea2 版。線画を `image2` の参照画像として渡す試作 |
+
+FLUX.2 版については [FLUX.2 版](#flux2-版) を参照。以下は Krea2 版の説明。
 
 | 入力 | ノード | 決めるもの |
 |---|---|---|
@@ -96,3 +100,66 @@ pose に差し替える場合:
 - 構図が守られない → #50 の `strength` を上げる、または #32（スタイル LoRA）を下げる
 - ControlNet 併用時は #7 の `steps` を 8 → 10 前後にすると安定しやすい
 - `cfg` は 1.0（turbo 系）のため、ネガティブプロンプト #35 は実質無効
+
+---
+
+## FLUX.2 版
+
+`Flux2_StyleRef_x_ControlNet.json`
+
+Krea2 では Style Reference と ControlNet を同時に成立させられなかった
+（公開 Control LoRA が depth / pose のみで、線画を構図として渡す手段が無い）。
+FLUX.2 は両方を素直に併用できる。
+
+| 入力 | ノード | 決めるもの | 経路 |
+|---|---|---|---|
+| **Image1** | `LoadImage` #93 | 画風・色調・タッチ | `ReferenceLatent` #96 |
+| **Image2** | `LoadImage` #70 | 形・構図 | `Flux2FunControlNetApply` #91 |
+
+```
+CLIPTextEncode #6 ─ FluxGuidance #26 ─ ReferenceLatent #96 ─ Flux2FunControlNetApply #91 ─ BasicGuider #22
+                                          │                       │
+Image1 ─ ImageScaleToTotalPixels #94 ─ VAEEncode #95            Image2 ─ ImageScale #81
+```
+
+`Flux2FunControlNetApply` は conditioning の dict を複製して `control` を足すだけなので、
+`ReferenceLatent` が入れた `reference_latents` はそのまま残る。
+ControlNet 側の patch も参照ラテントを認識し、control hint を本画像トークンにのみ適用する。
+よって両者は競合しない。
+
+### 必要なもの
+
+| 種類 | ファイル | 置き場所 |
+|---|---|---|
+| diffusion model | `flux2-dev`（bf16 / fp8 / gguf q4_k_m） | `models/diffusion_models/` |
+| text encoder | `mistral_3_small_flux2_*.safetensors` | `models/text_encoders/` |
+| VAE | `flux2-vae.safetensors` | `models/vae/` |
+| ControlNet | `FLUX.2-dev-Fun-Controlnet-Union.safetensors`（約 8.3GB） | `models/controlnet/` |
+
+カスタムノードは [`bryanmcguire/comfyui-flux2fun-controlnet`](https://github.com/bryanmcguire/comfyui-flux2fun-controlnet) の 1 つだけ。
+ControlNet 本体は [`alibaba-pai/FLUX.2-dev-Fun-Controlnet-Union`](https://huggingface.co/alibaba-pai/FLUX.2-dev-Fun-Controlnet-Union)。
+
+### ControlNet Union の対応種別
+
+pose / canny / depth / HED / MLSD / tile を**自動判別**する。
+種別の切り替えノードは無く、**線画はそのまま `control_image` に入れてよい**（前処理ノード不要）。
+
+### 調整箇所
+
+| 症状 | 変更 |
+|---|---|
+| 構図が Image2 に従わない | #91 `strength` 0.75 → 0.90 |
+| 線画の線がそのまま出力に残る | #91 `strength` 0.75 → 0.60 |
+| 画風が乗らない | プロンプトの style 記述を具体化する / Image1 を差し替える |
+
+解像度は `PrimitiveNode` #50 (width) / #51 (height) の 2 箇所だけ変えれば、
+latent・scheduler・Image2 リサイズの 3 つに伝わる。
+
+推奨値: steps 25〜50 (#48)、`FluxGuidance` 3.5〜4.5 (#26)、sampler `euler`。
+
+### 注意
+
+FLUX.2-dev は Krea2 より大幅に重い（テキストエンコーダに Mistral 3 Small、
+ControlNet だけで 8.3GB）。VRAM が足りない場合は gguf q4_k_m 量子化で動作報告がある。
+それでも厳しければ FLUX.1-dev + Redux（画風）+ ControlNet Union（構図）の
+軽量版を別途組める。
