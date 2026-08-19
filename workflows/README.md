@@ -228,5 +228,36 @@ hint を作るため VAE が必須で、未接続だとサンプリング開始�
 
 解像度は `PrimitiveNode` #34 (width) / #35 (height) の 2 箇所だけ変えれば、
 latent・`ModelSamplingFlux`・Image2 リサイズの 3 つに伝わる。
+
+### 既知の衝突: comfyui-flux2fun-controlnet
+
+FLUX.2 用の [`comfyui-flux2fun-controlnet`](https://github.com/bryanmcguire/comfyui-flux2fun-controlnet)
+を入れていると、この FLUX.1 版がサンプリング開始直後に落ちる。
+
+```
+TypeError: patched_forward_orig() got an unexpected keyword argument 'timestep_zero_index'
+```
+
+原因は `flux_patch.apply_patch()` が **import 時に無条件で**
+`comfy.ldm.flux.model.Flux.forward_orig` を差し替えていること（`nodes.py:26`）。
+このノードパックを使っていない FLUX.1 ワークフローにも patch が効いてしまう。
+そして `patched_forward_orig` の引数に `timestep_zero_index` が無いため、
+ComfyUI 0.26.0 の `comfy/ldm/flux/model.py:406` からの呼び出しと合わない。
+
+対処はどちらか:
+
+1. `custom_nodes/comfyui-flux2fun-controlnet` を削除または無効化して ComfyUI を再起動
+2. `flux_patch.py` の `patched_forward_orig` の引数に 1 行足す
+
+```python
+def patched_forward_orig(
+        self, img, img_ids, txt, txt_ids, timesteps, y,
+        guidance=None,
+        control=None,
+        timestep_zero_index=None,   # ← これを追加
+        transformer_options={},
+        attn_mask=None,
+):
+```
 8GB なら 832×1216 程度が上限。足りなければ #12 を `Unet Loader (GGUF)` に置き換えて
 Q4_K_M を使う。
