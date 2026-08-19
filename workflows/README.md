@@ -199,6 +199,11 @@ Image1 ─ CLIPVisionEncode #39 ───────────────┘
 `#54` の `negative` には空の `CLIPTextEncode` #51 を繋いである。
 `BasicGuider` は positive しか使わないため negative 出力は捨てている。
 
+`VAELoader` #10 は `#54` の `vae` にも繋いである。Union Pro 2.0 は latent 空間で
+hint を作るため VAE が必須で、未接続だとサンプリング開始時に
+`This Controlnet needs a VAE but none was provided` で落ちる
+（`comfy/controlnet.py:278`）。
+
 ### 必要なもの
 
 | 種類 | ファイル | 置き場所 |

@@ -2,7 +2,7 @@
   "id": "flux1-styleref-controlnet",
   "revision": 0,
   "last_node_id": 57,
-  "last_link_id": 141,
+  "last_link_id": 142,
   "nodes": [
     {
       "id": 34,
@@ -302,7 +302,8 @@
           "type": "VAE",
           "slot_index": 0,
           "links": [
-            12
+            12,
+            142
           ]
         }
       ],
@@ -1217,7 +1218,7 @@
         {
           "name": "vae",
           "type": "VAE",
-          "link": null,
+          "link": 142,
           "shape": 7
         }
       ],
@@ -1527,6 +1528,14 @@
       22,
       1,
       "CONDITIONING"
+    ],
+    [
+      142,
+      10,
+      0,
+      54,
+      4,
+      "VAE"
     ]
   ],
   "groups": [
