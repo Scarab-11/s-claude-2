@@ -5,12 +5,13 @@
 
 | ファイル | 内容 |
 |---|---|
-| `Flux2_StyleRef_x_ControlNet.json` | **推奨。** FLUX.2-dev 版。Style Reference と ControlNet を同時適用 |
+| `Flux1_StyleRef_x_ControlNet.json` | **推奨。** FLUX.1-dev 版。Redux(画風) × ControlNet Union(構図)。8GB VRAM 向け |
+| `Flux2_StyleRef_x_ControlNet.json` | FLUX.2-dev 版。同じ構成だが **VRAM 16GB 以上が必要** |
 | `Krea2_StyleRef_x_Structure.json` | Krea2 版。depth ControlNet と img2img を切り替えられる統合版 |
 | `Krea2_StyleRef_x_DepthControlNet.json` | Krea2 版。depth ControlNet のみの初版 |
 | `Krea2_StyleRef_x_LineArtReference.json` | Krea2 版。線画を `image2` の参照画像として渡す試作 |
 
-FLUX.2 版については [FLUX.2 版](#flux2-版) を参照。以下は Krea2 版の説明。
+FLUX 版については [FLUX.1 版](#flux1-版) / [FLUX.2 版](#flux2-版) を参照。以下は Krea2 版の説明。
 
 | 入力 | ノード | 決めるもの |
 |---|---|---|
@@ -157,9 +158,70 @@ latent・scheduler・Image2 リサイズの 3 つに伝わる。
 
 推奨値: steps 25〜50 (#48)、`FluxGuidance` 3.5〜4.5 (#26)、sampler `euler`。
 
-### 注意
+### VRAM 要件（重要）
 
-FLUX.2-dev は Krea2 より大幅に重い（テキストエンコーダに Mistral 3 Small、
-ControlNet だけで 8.3GB）。VRAM が足りない場合は gguf q4_k_m 量子化で動作報告がある。
-それでも厳しければ FLUX.1-dev + Redux（画風）+ ControlNet Union（構図）の
-軽量版を別途組める。
+**8GB では動作しない。** `Flux2FunControlNetLoader` は
+
+```python
+controlnet.to(device=device, dtype=dtype)
+```
+
+でチェックポイント全体を VRAM に常駐させる。ComfyUI のモデルマネージャの管理外なので
+オフロードされない。8.3GB のこのモデルでは 8GB カードがそれだけで埋まり、
+後続の `VAEEncode` が 128MB すら確保できずに OOM になる。
+
+また Fun ControlNet Union は **flux2-dev 専用**で、Klein 4B / 9B では使えない
+（[HF discussion](https://huggingface.co/alibaba-pai/FLUX.2-dev-Fun-Controlnet-Union/discussions/3)）。
+テキストエンコーダも T5 ではなく Mistral 3 Small が必要。
+
+8GB 環境では `Flux1_StyleRef_x_ControlNet.json` を使うこと。
+
+---
+
+## FLUX.1 版
+
+`Flux1_StyleRef_x_ControlNet.json`
+
+FLUX.2 版と同じ役割分担を、8GB VRAM で動く構成にしたもの。
+ベースは ComfyUI 公式テンプレート `flux_redux_model_example.json`。
+
+| 入力 | ノード | 決めるもの | 経路 |
+|---|---|---|---|
+| **Image1** | `LoadImage` #40 | 画風・色調・タッチ | `CLIPVisionEncode` #39 → `StyleModelApply` #41 (Redux) |
+| **Image2** | `LoadImage` #55 | 形・構図 | `ImageScale` #56 → `ControlNetApplyAdvanced` #54 |
+
+```
+CLIPTextEncode #6 ─ FluxGuidance #26 ─ StyleModelApply #41 ─ ControlNetApplyAdvanced #54 ─ BasicGuider #22
+                                            │                        │
+Image1 ─ CLIPVisionEncode #39 ───────────────┘        Image2 ─ ImageScale #56
+```
+
+`#54` の `negative` には空の `CLIPTextEncode` #51 を繋いである。
+`BasicGuider` は positive しか使わないため negative 出力は捨てている。
+
+### 必要なもの
+
+| 種類 | ファイル | 置き場所 |
+|---|---|---|
+| diffusion model | `flux1-dev-fp8.safetensors` | `models/diffusion_models/` |
+| text encoder | `t5xxl_fp8_e4m3fn_scaled.safetensors` + `clip_l.safetensors` | `models/text_encoders/` |
+| VAE | `ae.safetensors` | `models/vae/` |
+| style model | `flux1-redux-dev.safetensors` | `models/style_models/` |
+| clip vision | `sigclip_vision_patch14_384.safetensors` | `models/clip_vision/` |
+| ControlNet | [`Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro-2.0`](https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro-2.0) | `models/controlnet/` |
+
+**カスタムノードは不要。** すべて ComfyUI 標準ノードで構成されている。
+
+### 調整箇所
+
+| 症状 | 変更 |
+|---|---|
+| 構図が Image2 に従わない | #54 `strength` 0.75 → 0.90、`end_percent` 0.85 → 1.00 |
+| 線画の線が出力に残る | #54 `end_percent` 0.85 → 0.60 |
+| 画風が乗らない | #41 `strength` 0.6 → 0.9 |
+| 画風が強すぎてプロンプトが効かない | #41 `strength` 0.6 → 0.3 |
+
+解像度は `PrimitiveNode` #34 (width) / #35 (height) の 2 箇所だけ変えれば、
+latent・`ModelSamplingFlux`・Image2 リサイズの 3 つに伝わる。
+8GB なら 832×1216 程度が上限。足りなければ #12 を `Unet Loader (GGUF)` に置き換えて
+Q4_K_M を使う。
