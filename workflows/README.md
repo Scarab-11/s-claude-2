@@ -193,16 +193,32 @@ FLUX.2 版と同じ役割分担を、8GB VRAM で動く構成にしたもの。
 ```
 CLIPTextEncode #6 ─ FluxGuidance #26 ─ StyleModelApply #41 ─ ControlNetApplyAdvanced #54 ─ BasicGuider #22
                                             │                        │
-Image1 ─ CLIPVisionEncode #39 ───────────────┘        Image2 ─ ImageScale #56 ─┬─ #54
-                                                                              └─ PreviewImage #58
+Image1 ─ CLIPVisionEncode #39 ───────────────┘   Image2 ─ ImageScale #56 ─ Canny #59 ─┬─ #54
+                                                                                     └─ PreviewImage #58
 ```
 
-`PreviewImage` #58 には `#54` に渡るのと**同じ IMAGE** を分岐させてある。
-実行するとリサイズ・クロップ後の Image2 がそのまま表示されるので、
-構図が切れていないか、意図した画像が入っているかを目視で確認できる。
-前処理ノードは挟んでいないため、表示は「Image2 を生成解像度に合わせたもの」。
-エッジ抽出後の姿を見たい場合は #56 と #54 の間に標準ノード `Canny` を入れ、
-その出力を #58 にも繋ぐ。
+### 前処理 #59 とプレビュー #58
+
+**`SetUnionControlNetType` #53 は画像を加工しない。** どの mode embedding を
+使うかを ControlNet に伝えるだけなので、`canny` や `lineart` を選んでも
+写真は写真のまま `#54` に渡る。線を取り出すには前処理ノードが必要で、
+そのために ComfyUI 標準の `Canny` #59 を `#56` と `#54` の間に入れてある。
+
+`PreviewImage` #58 には `#59` の出力＝`#54` に渡るのと**同じ IMAGE** が出る。
+
+| Image2 の中身 | #59 の扱い |
+|---|---|
+| 写真・イラスト | そのまま有効。線が抽出される |
+| 最初から線画 | #59 を選んで **Ctrl+B** でバイパス（素通し） |
+
+| 症状 | 変更 |
+|---|---|
+| 線が少なすぎる | #59 `low_threshold` 0.2 → 0.1 |
+| 線が多すぎる・ノイズだらけ | #59 `high_threshold` 0.5 → 0.8 |
+
+`depth` / `openpose` に相当する前処理ノードは ComfyUI 標準には無い。
+[`comfyui_controlnet_aux`](https://github.com/Fannovel16/comfyui_controlnet_aux)
+を入れて #59 を差し替える。
 
 `#54` の `negative` には空の `CLIPTextEncode` #51 を繋いである。
 `BasicGuider` は positive しか使わないため negative 出力は捨てている。
