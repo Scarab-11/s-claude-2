@@ -1,8 +1,8 @@
 {
   "id": "flux1-styleblend-two-images",
   "revision": 0,
-  "last_node_id": 51,
-  "last_link_id": 131,
+  "last_node_id": 56,
+  "last_link_id": 143,
   "nodes": [
     {
       "id": 34,
@@ -28,8 +28,9 @@
           },
           "slot_index": 0,
           "links": [
-            112,
-            115
+            115,
+            133,
+            136
           ]
         }
       ],
@@ -38,61 +39,8 @@
         "Run widget replace on values": false
       },
       "widgets_values": [
-        1024,
+        832,
         "fixed"
-      ]
-    },
-    {
-      "id": 27,
-      "type": "EmptySD3LatentImage",
-      "pos": [
-        130,
-        320
-      ],
-      "size": [
-        210,
-        110
-      ],
-      "flags": {},
-      "order": 17,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "width",
-          "type": "INT",
-          "widget": {
-            "name": "width"
-          },
-          "link": 112
-        },
-        {
-          "name": "height",
-          "type": "INT",
-          "widget": {
-            "name": "height"
-          },
-          "link": 113
-        }
-      ],
-      "outputs": [
-        {
-          "name": "LATENT",
-          "type": "LATENT",
-          "slot_index": 0,
-          "links": [
-            116
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.3.44",
-        "Node name for S&R": "EmptySD3LatentImage"
-      },
-      "widgets_values": [
-        1024,
-        1024,
-        1
       ]
     },
     {
@@ -133,8 +81,9 @@
       "widgets_values": [
         "simple",
         24,
-        1.0
-      ]
+        0.6
+      ],
+      "title": "denoise ◀ 顔をどれだけ残すか"
     },
     {
       "id": 41,
@@ -352,7 +301,8 @@
           "type": "VAE",
           "slot_index": 0,
           "links": [
-            12
+            12,
+            141
           ]
         }
       ],
@@ -674,7 +624,7 @@
         {
           "name": "latent_image",
           "type": "LATENT",
-          "link": 116
+          "link": 142
         }
       ],
       "outputs": [
@@ -942,8 +892,9 @@
           },
           "slot_index": 0,
           "links": [
-            113,
-            114
+            114,
+            134,
+            137
           ]
         }
       ],
@@ -952,7 +903,7 @@
         "Run widget replace on values": false
       },
       "widgets_values": [
-        1024,
+        1216,
         "fixed"
       ]
     },
@@ -1058,7 +1009,7 @@
         "Node name for S&R": "CLIPTextEncode"
       },
       "widgets_values": [
-        "A quiet street corner in the late afternoon."
+        "A portrait of a young woman, head and shoulders, facing the viewer."
       ],
       "color": "#232",
       "bgcolor": "#353"
@@ -1113,7 +1064,8 @@
           "name": "IMAGE",
           "type": "IMAGE",
           "links": [
-            118
+            118,
+            132
           ]
         },
         {
@@ -1153,7 +1105,8 @@
           "name": "IMAGE",
           "type": "IMAGE",
           "links": [
-            131
+            131,
+            135
           ]
         },
         {
@@ -1174,15 +1127,253 @@
       "title": "Image2 — 画風B"
     },
     {
+      "id": 52,
+      "type": "ImageScale",
+      "pos": [
+        200,
+        600
+      ],
+      "size": [
+        260,
+        130
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "画風A を生成解像度に合わせる",
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 132
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "link": 133,
+          "widget": {
+            "name": "width"
+          }
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "link": 134,
+          "widget": {
+            "name": "height"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            138
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "ImageScale"
+      },
+      "widgets_values": [
+        "lanczos",
+        832,
+        1216,
+        "center"
+      ]
+    },
+    {
+      "id": 53,
+      "type": "ImageScale",
+      "pos": [
+        200,
+        780
+      ],
+      "size": [
+        260,
+        130
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "画風B を生成解像度に合わせる",
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 135
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "link": 136,
+          "widget": {
+            "name": "width"
+          }
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "link": 137,
+          "widget": {
+            "name": "height"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            139
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "ImageScale"
+      },
+      "widgets_values": [
+        "lanczos",
+        832,
+        1216,
+        "center"
+      ]
+    },
+    {
+      "id": 54,
+      "type": "ImageBlend",
+      "pos": [
+        200,
+        960
+      ],
+      "size": [
+        260,
+        150
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "2枚を重ねる ◀ 顔の混合比はここ",
+      "inputs": [
+        {
+          "name": "image1",
+          "type": "IMAGE",
+          "link": 138
+        },
+        {
+          "name": "image2",
+          "type": "IMAGE",
+          "link": 139
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            140,
+            143
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "ImageBlend"
+      },
+      "widgets_values": [
+        0.5,
+        "normal"
+      ]
+    },
+    {
+      "id": 55,
+      "type": "VAEEncode",
+      "pos": [
+        490,
+        960
+      ],
+      "size": [
+        170,
+        50
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "重ねた画像 → latent",
+      "inputs": [
+        {
+          "name": "pixels",
+          "type": "IMAGE",
+          "link": 140
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 141
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            142
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "VAEEncode"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 56,
+      "type": "PreviewImage",
+      "pos": [
+        490,
+        600
+      ],
+      "size": [
+        170,
+        300
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "重ねた結果（出発点）",
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 143
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
       "id": 51,
       "type": "MarkdownNote",
       "pos": [
         1590,
-        -1100
+        -1180
       ],
       "size": [
         620,
-        700
+        780
       ],
       "flags": {},
       "order": 0,
@@ -1192,7 +1383,7 @@
       "outputs": [],
       "properties": {},
       "widgets_values": [
-        "## 仕組み\nRedux は画像を 729 個のトークンに変換して conditioning に足す。\n`StyleModelApply` を 2 段直列にすると両方のトークンが並ぶので、\n**混合比 = #41 と #45 の strength の比**になる。\n\n```\nImage1 → CLIPVisionEncode #39 → StyleModelApply #41 ┐\n                                                    ├→ BasicGuider\nImage2 → CLIPVisionEncode #46 → StyleModelApply #45 ┘\n```\n\n## 混合比の目安\n| したいこと | #41 (A) | #45 (B) |\n|---|---|---|\n| 等分に混ぜる | 0.6 | 0.6 |\n| A を主、B を隠し味 | 0.8 | 0.3 |\n| B を主、A を隠し味 | 0.3 | 0.8 |\n| 両方もっと強く | 0.9 | 0.9 |\n| プロンプトを効かせたい | 0.4 | 0.4 |\n\n`strength_type` は **multiply** のまま。Redux トークンを定数倍する\n(`nodes.py:1134` `cond *= strength`) ので比がそのまま効く。\n`attn_bias` は別系統で、混合比の調整には向かない。\n\n## うまくいかないとき\n| 症状 | 対処 |\n|---|---|\n| 片方の絵がそのまま出る | その側の strength を下げる (0.3 前後) |\n| どちらの画風も乗らない | 両方 0.9 に上げる |\n| プロンプトが完全に無視される | 両方 0.4 に下げる |\n| 混ざらず継ぎ接ぎになる | 2枚の明度・彩度を近づけてから入れる |\n\n片方だけの効果を確認したいときは、その `StyleModelApply` を選んで\n**Ctrl+B** でバイパスすると素通しになる。\n\n## crop 設定\n#39 / #46 の `crop` は **none** にしてある。`center` だと中央を\n正方形に切り取るため、画面端の色がトークンに入らない。\n色彩を混ぜる用途では none のほうが元画像の色を拾う。\n\n## 必要なファイル\n| 種類 | ファイル | 置き場所 |\n|---|---|---|\n| diffusion model | flux1-dev-fp8.safetensors | `models/diffusion_models/` |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l | `models/text_encoders/` |\n| VAE | ae.safetensors | `models/vae/` |\n| style model | flux1-redux-dev.safetensors | `models/style_models/` |\n| clip vision | sigclip_vision_patch14_384.safetensors | `models/clip_vision/` |\n\nカスタムノード不要（すべて ComfyUI 標準ノード）。\nControlNet を使わないので、構図はプロンプトと seed 任せになる。"
+        "## 2系統ある\n| 何を混ぜるか | どこで | 効くもの |\n|---|---|---|\n| **顔・構図** | `ImageBlend` #54 の `blend_factor` | ピクセルを実際に重ねる |\n| **画風・色** | `StyleModelApply` #41 / #45 の `strength` | Redux トークン |\n\n**Redux だけでは顔は保てない。** SigLIP が画像を 384x384 の\nトークンに潰すので同一性の情報が残らず、空 latent から始めると\n顔はゼロから生成される。そこで 2 枚を重ねた画像を latent の\n出発点に置き、`denoise` #17 でどれだけ残すかを決める。\n\n```\n顔:   Image1 → ImageScale #52 ┐\n                              ├ ImageBlend #54 → VAEEncode #55 → 出発点\n      Image2 → ImageScale #53 ┘                → PreviewImage #56\n\n画風: Image1 → CLIPVisionEncode #39 → StyleModelApply #41 ┐\n      Image2 → CLIPVisionEncode #46 → StyleModelApply #45 ┴→ BasicGuider\n```\n\n## denoise (#17) — ここが一番効く\n| 値 | 結果 |\n|---|---|\n| 0.40 | 元の 2 枚の面影が強く残る。重ねた跡も残りやすい |\n| 0.60 | 既定値。顔立ちは引き継ぎつつ絵として整う |\n| 0.80 | かなり描き変わる。構図だけ引き継ぐ |\n| 1.00 | アンカーが数式上消えて完全な txt2img。顔は別人になる |\n\n「全然違う顔になる」ときは **まず denoise を下げる**。\n`ImageBlend` #54 の `blend_factor` は 0.0 で A のみ、1.0 で B のみ、\n0.5 で等分。#56 に重ねた結果が出るので見ながら決める。\n\n## 画風の混合比の目安\n| したいこと | #41 (A) | #45 (B) |\n|---|---|---|\n| 等分に混ぜる | 0.6 | 0.6 |\n| A を主、B を隠し味 | 0.8 | 0.3 |\n| B を主、A を隠し味 | 0.3 | 0.8 |\n| 両方もっと強く | 0.9 | 0.9 |\n| プロンプトを効かせたい | 0.4 | 0.4 |\n\n`strength_type` は **multiply** のまま。Redux トークンを定数倍する\n(`nodes.py:1134` `cond *= strength`) ので比がそのまま効く。\n`attn_bias` は別系統で、混合比の調整には向かない。\n\n## うまくいかないとき\n| 症状 | 対処 |\n|---|---|\n| **顔が全然違う人になる** | **#17 denoise を 0.45 前後まで下げる** |\n| 片方の絵がそのまま出る | その側の strength を下げる (0.3 前後) |\n| どちらの画風も乗らない | 両方 0.9 に上げる |\n| プロンプトが完全に無視される | 両方 0.4 に下げる |\n| 混ざらず継ぎ接ぎになる | 2枚の明度・彩度を近づけてから入れる |\n\n片方だけの効果を確認したいときは、その `StyleModelApply` を選んで\n**Ctrl+B** でバイパスすると素通しになる。\n\n## crop 設定\n#39 / #46 の `crop` は **none** にしてある。`center` だと中央を\n正方形に切り取るため、画面端の色がトークンに入らない。\n色彩を混ぜる用途では none のほうが元画像の色を拾う。\n\n## 必要なファイル\n| 種類 | ファイル | 置き場所 |\n|---|---|---|\n| diffusion model | flux1-dev-fp8.safetensors | `models/diffusion_models/` |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l | `models/text_encoders/` |\n| VAE | ae.safetensors | `models/vae/` |\n| style model | flux1-redux-dev.safetensors | `models/style_models/` |\n| clip vision | sigclip_vision_patch14_384.safetensors | `models/clip_vision/` |\n\nカスタムノード不要（すべて ComfyUI 標準ノード）。\n\n顔の同一性そのものを保ちたい場合、標準ノードの範囲ではここが限界。\nPuLID-Flux / InstantID など顔埋め込みを使うノードパックが必要。"
       ],
       "color": "#432",
       "bgcolor": "#653"
@@ -1296,22 +1487,6 @@
       "MODEL"
     ],
     [
-      112,
-      34,
-      0,
-      27,
-      0,
-      "INT"
-    ],
-    [
-      113,
-      35,
-      0,
-      27,
-      1,
-      "INT"
-    ],
-    [
       114,
       35,
       0,
@@ -1326,14 +1501,6 @@
       30,
       1,
       "INT"
-    ],
-    [
-      116,
-      27,
-      0,
-      13,
-      4,
-      "LATENT"
     ],
     [
       117,
@@ -1422,6 +1589,102 @@
       46,
       1,
       "IMAGE"
+    ],
+    [
+      132,
+      40,
+      0,
+      52,
+      0,
+      "IMAGE"
+    ],
+    [
+      133,
+      34,
+      0,
+      52,
+      1,
+      "INT"
+    ],
+    [
+      134,
+      35,
+      0,
+      52,
+      2,
+      "INT"
+    ],
+    [
+      135,
+      47,
+      0,
+      53,
+      0,
+      "IMAGE"
+    ],
+    [
+      136,
+      34,
+      0,
+      53,
+      1,
+      "INT"
+    ],
+    [
+      137,
+      35,
+      0,
+      53,
+      2,
+      "INT"
+    ],
+    [
+      138,
+      52,
+      0,
+      54,
+      0,
+      "IMAGE"
+    ],
+    [
+      139,
+      53,
+      0,
+      54,
+      1,
+      "IMAGE"
+    ],
+    [
+      140,
+      54,
+      0,
+      55,
+      0,
+      "IMAGE"
+    ],
+    [
+      141,
+      10,
+      0,
+      55,
+      1,
+      "VAE"
+    ],
+    [
+      142,
+      55,
+      0,
+      13,
+      4,
+      "LATENT"
+    ],
+    [
+      143,
+      54,
+      0,
+      56,
+      0,
+      "IMAGE"
     ]
   ],
   "groups": [
@@ -1500,6 +1763,19 @@
         440
       ],
       "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 8,
+      "title": "顔・構図の混合（ピクセル側）",
+      "bounding": [
+        180,
+        530,
+        500,
+        600
+      ],
+      "color": "#8A8",
       "font_size": 24,
       "flags": {}
     }

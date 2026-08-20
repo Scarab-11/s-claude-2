@@ -323,39 +323,66 @@ Q4_K_M を使う。
 
 `Flux1_StyleBlend_TwoImages.json`
 
-構図制御は使わず、**読み込んだ 2 枚の色彩・画調・タッチを混ぜて**出力する。
-ベースは同じ ComfyUI 公式テンプレート `flux_redux_model_example.json`
+構図制御は使わず、**読み込んだ 2 枚を混ぜて**出力する。
+ベースは ComfyUI 公式テンプレート `flux_redux_model_example.json`
 （このテンプレートは元から Redux 経路を 2 本持っている）。
 
-| 入力 | ノード | 混合比を決めるノード |
+混ぜる系統が 2 つあり、役割が違う。
+
+| 何を混ぜるか | どこで | 実体 |
 |---|---|---|
-| **Image1（画風A）** | `LoadImage` #40 | `StyleModelApply` #41 の `strength` |
-| **Image2（画風B）** | `LoadImage` #47 | `StyleModelApply` #45 の `strength` |
+| **顔・構図** | `ImageBlend` #54 の `blend_factor` | ピクセルを実際に重ねる |
+| **画風・色** | `StyleModelApply` #41 / #45 の `strength` | Redux トークン |
 
 ```
-CLIPTextEncode #6 ─ FluxGuidance #26 ─ StyleModelApply #41 ─ StyleModelApply #45 ─ BasicGuider #22
-                                              │                     │
-Image1 ─ CLIPVisionEncode #39 ────────────────┘                     │
-Image2 ─ CLIPVisionEncode #46 ──────────────────────────────────────┘
+顔:   Image1 → ImageScale #52 ┐
+                              ├ ImageBlend #54 → VAEEncode #55 → SamplerCustomAdvanced #13
+      Image2 → ImageScale #53 ┘                → PreviewImage #56
+
+画風: Image1 → CLIPVisionEncode #39 → StyleModelApply #41 ┐
+      Image2 → CLIPVisionEncode #46 → StyleModelApply #45 ┴→ BasicGuider #22
 ```
+
+### Redux だけでは顔は保てない
+
+`StyleModelApply` を 2 段直列にすると両方の Redux トークンが並ぶので画風は混ざるが、
+**顔の同一性は再現されない**。SigLIP が画像を 384×384 のトークン列に潰す時点で
+個人を特定する情報が落ちるうえ、空 latent から始める txt2img では画素側の手がかりが
+一切ない。結果、出力の顔は毎回ゼロから生成される。
+
+そこで 2 枚を実際に重ねた画像を `VAEEncode` して latent の出発点に据え、
+`BasicScheduler` #17 の `denoise` でどれだけ残すかを決める構成にしてある。
+
+| `denoise` (#17) | 結果 |
+|---|---|
+| `0.40` | 元の 2 枚の面影が強く残る。重ねた跡も残りやすい |
+| `0.60` | 既定値。顔立ちを引き継ぎつつ絵として整う |
+| `0.80` | かなり描き変わる。構図だけ引き継ぐ |
+| `1.00` | アンカーが消えて完全な txt2img。顔は別人になる |
+
+`denoise` が `1.00` のとき `VAEEncode` の内容が消えるのは、flow-matching の
+`noise_scaling` が `sigma * noise + (1 - sigma) * latent` で、`denoise=1.0` では
+`sigma=1.0` となり latent 項の係数が 0 になるため。`EmptySD3LatentImage` は
+不要になったので削除してある。
+
+**「顔が全然違う人になる」ときは、まず `denoise` を下げる。**
+
+`ImageBlend` #54 の `blend_factor` は `0.0` で A のみ、`1.0` で B のみ、`0.5` で等分。
+重ねた結果は `PreviewImage` #56 に出るので、見ながら決められる。
 
 ### なぜ比が strength で決まるのか
 
-Redux は画像を 729 個のトークンに変換して conditioning に足す。
-`StyleModelApply` を 2 段直列にすると両方のトークンが連結されるだけなので、
-どちらがどれだけ効くかは各段の `strength` の比で決まる。
 `strength_type` が `multiply` のとき、`nodes.py:1134` が
 
 ```python
 cond *= strength
 ```
 
-と Redux トークンそのものを定数倍しているため。
+と Redux トークンそのものを定数倍しているため、2 段直列にすれば比がそのまま効く。
 `attn_bias` は `log(strength)` を attention バイアスに足す別系統で、
-`strength` が 1.0 だと何も起きない。混合比の調整には向かないので
-`multiply` のまま使う。
+`strength` が 1.0 だと何も起きない。混合比の調整には `multiply` を使う。
 
-### 混合比の目安
+### 画風の混合比の目安
 
 | したいこと | #41 (A) | #45 (B) |
 |---|---|---|
@@ -367,6 +394,7 @@ cond *= strength
 
 | 症状 | 対処 |
 |---|---|
+| **顔が全然違う人になる** | **#17 `denoise` を 0.45 前後まで下げる** |
 | 片方の絵がそのまま出てしまう | その側の `strength` を 0.3 前後まで下げる |
 | どちらの画風も乗らない | 両方 0.9 に上げる |
 | プロンプトが完全に無視される | 両方 0.4 に下げる |
@@ -374,6 +402,15 @@ cond *= strength
 
 片方だけの効果を確認したいときは、その `StyleModelApply` を選んで
 **Ctrl+B** でバイパスすると素通しになる。
+
+### 解像度は参照画像に合わせる
+
+`PrimitiveNode` #34 / #35 は `832 × 1216`。テンプレート既定の `1024 × 1024` のままだと
+縦長の参照画像が正方形に詰め込まれ、構図ごと作り直されて顔も変わる。
+参照画像のアスペクト比に合わせるほうが結果が安定する。
+
+プロンプト #6 も参照画像と主題を揃えておく。無関係な文章が入っていると
+その分だけ絵が作り直される。
 
 ### crop を none にしてある
 
@@ -395,6 +432,5 @@ cond *= strength
 
 **カスタムノードは不要。** すべて ComfyUI 標準ノード。
 
-構図を指定する経路が無いので、レイアウトはプロンプト #6 と seed #25 任せになる。
-構図も固定したい場合は `Flux1_StyleRef_x_ControlNet.json` 側に
-`StyleModelApply` をもう 1 段足すほうが早い。
+顔の同一性そのものを保証したい場合、標準ノードの範囲ではここが限界になる。
+PuLID-Flux や InstantID のように顔埋め込みを別経路で注入するノードパックが必要。
