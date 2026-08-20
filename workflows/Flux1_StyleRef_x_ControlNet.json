@@ -184,7 +184,7 @@
         "Node name for S&R": "StyleModelApply"
       },
       "widgets_values": [
-        0.6,
+        0.9,
         "multiply"
       ],
       "title": "StyleModelApply — Redux（画風）"
@@ -1054,7 +1054,7 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "Union の制御タイプ（auto でよい）",
+      "title": "Union の制御タイプ（手動指定）",
       "inputs": [
         {
           "name": "control_net",
@@ -1077,7 +1077,7 @@
         "Node name for S&R": "SetUnionControlNetType"
       },
       "widgets_values": [
-        "auto"
+        "canny/lineart/anime_lineart/mlsd"
       ]
     },
     {
@@ -1242,7 +1242,7 @@
         "Node name for S&R": "ControlNetApplyAdvanced"
       },
       "widgets_values": [
-        0.75,
+        0.9,
         0.0,
         0.85
       ]
@@ -1256,7 +1256,7 @@
       ],
       "size": [
         620,
-        460
+        620
       ],
       "flags": {},
       "order": 0,
@@ -1266,7 +1266,7 @@
       "outputs": [],
       "properties": {},
       "widgets_values": [
-        "## 役割分担\n- **Image1 (#40)** = 画風。Redux (CLIPVision → StyleModelApply #41)。\n- **Image2 (#55)** = 形・構図。ControlNet Union (#54)。\n\nUnion Pro 2.0 は canny / soft edge / depth / pose / gray に対応。\n線画はそのまま入れてよい（#53 は `auto` のままでよい）。\n\n## 必要なファイル\n| 種類 | ファイル | 置き場所 |\n|---|---|---|\n| diffusion model | flux1-dev-fp8.safetensors | `models/diffusion_models/` |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l | `models/text_encoders/` |\n| VAE | ae.safetensors | `models/vae/` |\n| style model | flux1-redux-dev.safetensors | `models/style_models/` |\n| clip vision | sigclip_vision_patch14_384.safetensors | `models/clip_vision/` |\n| ControlNet | FLUX.1-dev-Controlnet-Union-Pro-2.0 | `models/controlnet/` |\n\nカスタムノード不要（すべて ComfyUI 標準ノード）。\n\n## 調整箇所\n| 症状 | 変更 |\n|---|---|\n| 構図が Image2 に従わない | #54 strength 0.75 → 0.90 / end_percent 0.85 → 1.00 |\n| 線画の線が出力に残る | #54 end_percent 0.85 → 0.60 |\n| 画風が乗らない | #41 strength 0.6 → 0.9 |\n| 画風が強すぎてプロンプトが効かない | #41 strength 0.6 → 0.3 |\n\n解像度は #34 (width) / #35 (height) の 2 箇所だけ変えれば\nlatent・ModelSamplingFlux・Image2 リサイズの 3 つに伝わる。\n\nVRAM 8GB なら 832×1216 程度まで。足りなければ GGUF (Q4_K_M) に\n差し替える（#12 を `Unet Loader (GGUF)` に置換）。"
+        "## 役割分担\n- **Image1 (#40)** = 画風。Redux (CLIPVision → StyleModelApply #41)。\n- **Image2 (#55)** = 形・構図。ControlNet Union (#54)。\n\n## #53 制御タイプの手動指定\n#53 のドロップダウンで選ぶ。指定できる文字列は ComfyUI 本体の\n`comfy/cldm/control_types.py` に定義された 8 種類＋ `auto`。\n\n| 入れる画像 | #53 で選ぶ値 |\n|---|---|\n| 線画 / canny / MLSD | `canny/lineart/anime_lineart/mlsd` |\n| ラフ線 / scribble / HED / PiDi | `hed/pidi/scribble/ted` |\n| 深度マップ | `depth` |\n| ポーズ（棒人間） | `openpose` |\n| 法線マップ | `normal` |\n| セグメンテーション | `segment` |\n| タイル（拡大用） | `tile` |\n| 部分描き直し | `repaint` |\n\n**注意**: Union Pro **2.0** は mode embedding を持たないため、\nここで型を指定しても ControlNetFlux 側で無視される\n(`controlnet_mode_embedder is None` → 分岐に入らない)。\n型指定を実際に効かせたいなら Union Pro **1.0** を #52 で読み込む。\n2.0 のままなら `auto` でも手動でも結果は同じ。\n\n## 必要なファイル\n| 種類 | ファイル | 置き場所 |\n|---|---|---|\n| diffusion model | flux1-dev-fp8.safetensors | `models/diffusion_models/` |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l | `models/text_encoders/` |\n| VAE | ae.safetensors | `models/vae/` |\n| style model | flux1-redux-dev.safetensors | `models/style_models/` |\n| clip vision | sigclip_vision_patch14_384.safetensors | `models/clip_vision/` |\n| ControlNet | FLUX.1-dev-Controlnet-Union-Pro-2.0 | `models/controlnet/` |\n\nカスタムノード不要（すべて ComfyUI 標準ノード）。\n\n## 調整箇所\n| 症状 | 変更 |\n|---|---|\n| 構図が Image2 に従わない | #54 strength 0.90 → 1.00 / end_percent 0.85 → 1.00 |\n| 線画の線が出力に残る | #54 end_percent 0.85 → 0.60 |\n| 画風が乗らない | #41 strength 0.9 → 1.1 |\n| 画風が強すぎてプロンプトが効かない | #41 strength 0.9 → 0.5 |\n\n解像度は #34 (width) / #35 (height) の 2 箇所だけ変えれば\nlatent・ModelSamplingFlux・Image2 リサイズの 3 つに伝わる。\n\nVRAM 8GB なら 832×1216 程度まで。足りなければ GGUF (Q4_K_M) に\n差し替える（#12 を `Unet Loader (GGUF)` に置換）。"
       ],
       "color": "#432",
       "bgcolor": "#653"

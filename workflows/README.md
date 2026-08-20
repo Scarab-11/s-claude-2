@@ -204,6 +204,34 @@ hint を作るため VAE が必須で、未接続だとサンプリング開始�
 `This Controlnet needs a VAE but none was provided` で落ちる
 （`comfy/controlnet.py:278`）。
 
+### 制御タイプの手動指定（#53）
+
+`SetUnionControlNetType` #53 のドロップダウンで、Image2 をどう解釈させるかを
+明示できる。選べる文字列は ComfyUI 本体の `comfy/cldm/control_types.py` に
+定義された 8 種類と `auto` のみ。
+
+| 入れる画像 | #53 で選ぶ値 |
+|---|---|
+| 線画 / canny / MLSD | `canny/lineart/anime_lineart/mlsd` ← 既定値 |
+| ラフ線 / scribble / HED / PiDi | `hed/pidi/scribble/ted` |
+| 深度マップ | `depth` |
+| ポーズ（棒人間） | `openpose` |
+| 法線マップ | `normal` |
+| セグメンテーション | `segment` |
+| タイル（拡大用） | `tile` |
+| 部分描き直し | `repaint` |
+
+**ただし Union Pro 2.0 では効かない。** 2.0 は mode embedding
+(`controlnet_mode_embedder`) を持たないため、`ControlNetFlux.forward_orig` の
+
+```python
+if self.controlnet_mode_embedder is not None and len(control_type) > 0:
+```
+
+の分岐に入らず、指定した型は黙って捨てられる（エラーにはならない）。
+型指定を実際に効かせたい場合は #52 で **Union Pro 1.0** を読み込む。
+2.0 のままなら `auto` でも手動指定でも出力は同じ。
+
 ### 必要なもの
 
 | 種類 | ファイル | 置き場所 |
@@ -221,10 +249,12 @@ hint を作るため VAE が必須で、未接続だとサンプリング開始�
 
 | 症状 | 変更 |
 |---|---|
-| 構図が Image2 に従わない | #54 `strength` 0.75 → 0.90、`end_percent` 0.85 → 1.00 |
+| 構図が Image2 に従わない | #54 `strength` 0.90 → 1.00、`end_percent` 0.85 → 1.00 |
 | 線画の線が出力に残る | #54 `end_percent` 0.85 → 0.60 |
-| 画風が乗らない | #41 `strength` 0.6 → 0.9 |
-| 画風が強すぎてプロンプトが効かない | #41 `strength` 0.6 → 0.3 |
+| 画風が乗らない | #41 `strength` 0.9 → 1.1 |
+| 画風が強すぎてプロンプトが効かない | #41 `strength` 0.9 → 0.5 |
+
+既定値は実際に良い結果が出た組み合わせ（#41 `0.9` / #54 `0.90` / `end_percent` `0.85`）。
 
 解像度は `PrimitiveNode` #34 (width) / #35 (height) の 2 箇所だけ変えれば、
 latent・`ModelSamplingFlux`・Image2 リサイズの 3 つに伝わる。
