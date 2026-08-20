@@ -6,12 +6,14 @@
 | ファイル | 内容 |
 |---|---|
 | `Flux1_StyleRef_x_ControlNet.json` | **推奨。** FLUX.1-dev 版。Redux(画風) × ControlNet Union(構図)。8GB VRAM 向け |
+| `Flux1_StyleBlend_TwoImages.json` | FLUX.1-dev 版。**2枚の画風を融合**させる（構図制御なし）。8GB VRAM 向け |
 | `Flux2_StyleRef_x_ControlNet.json` | FLUX.2-dev 版。同じ構成だが **VRAM 16GB 以上が必要** |
 | `Krea2_StyleRef_x_Structure.json` | Krea2 版。depth ControlNet と img2img を切り替えられる統合版 |
 | `Krea2_StyleRef_x_DepthControlNet.json` | Krea2 版。depth ControlNet のみの初版 |
 | `Krea2_StyleRef_x_LineArtReference.json` | Krea2 版。線画を `image2` の参照画像として渡す試作 |
 
-FLUX 版については [FLUX.1 版](#flux1-版) / [FLUX.2 版](#flux2-版) を参照。以下は Krea2 版の説明。
+FLUX 版については [FLUX.1 版](#flux1-版) / [FLUX.2 版](#flux2-版) /
+[2枚の画風を融合する版](#2枚の画風を融合する版) を参照。以下は Krea2 版の説明。
 
 | 入力 | ノード | 決めるもの |
 |---|---|---|
@@ -316,3 +318,83 @@ def patched_forward_orig(
 ```
 8GB なら 832×1216 程度が上限。足りなければ #12 を `Unet Loader (GGUF)` に置き換えて
 Q4_K_M を使う。
+
+## 2枚の画風を融合する版
+
+`Flux1_StyleBlend_TwoImages.json`
+
+構図制御は使わず、**読み込んだ 2 枚の色彩・画調・タッチを混ぜて**出力する。
+ベースは同じ ComfyUI 公式テンプレート `flux_redux_model_example.json`
+（このテンプレートは元から Redux 経路を 2 本持っている）。
+
+| 入力 | ノード | 混合比を決めるノード |
+|---|---|---|
+| **Image1（画風A）** | `LoadImage` #40 | `StyleModelApply` #41 の `strength` |
+| **Image2（画風B）** | `LoadImage` #47 | `StyleModelApply` #45 の `strength` |
+
+```
+CLIPTextEncode #6 ─ FluxGuidance #26 ─ StyleModelApply #41 ─ StyleModelApply #45 ─ BasicGuider #22
+                                              │                     │
+Image1 ─ CLIPVisionEncode #39 ────────────────┘                     │
+Image2 ─ CLIPVisionEncode #46 ──────────────────────────────────────┘
+```
+
+### なぜ比が strength で決まるのか
+
+Redux は画像を 729 個のトークンに変換して conditioning に足す。
+`StyleModelApply` を 2 段直列にすると両方のトークンが連結されるだけなので、
+どちらがどれだけ効くかは各段の `strength` の比で決まる。
+`strength_type` が `multiply` のとき、`nodes.py:1134` が
+
+```python
+cond *= strength
+```
+
+と Redux トークンそのものを定数倍しているため。
+`attn_bias` は `log(strength)` を attention バイアスに足す別系統で、
+`strength` が 1.0 だと何も起きない。混合比の調整には向かないので
+`multiply` のまま使う。
+
+### 混合比の目安
+
+| したいこと | #41 (A) | #45 (B) |
+|---|---|---|
+| 等分に混ぜる（既定値） | 0.6 | 0.6 |
+| A を主、B を隠し味 | 0.8 | 0.3 |
+| B を主、A を隠し味 | 0.3 | 0.8 |
+| 両方もっと強く | 0.9 | 0.9 |
+| プロンプトを効かせたい | 0.4 | 0.4 |
+
+| 症状 | 対処 |
+|---|---|
+| 片方の絵がそのまま出てしまう | その側の `strength` を 0.3 前後まで下げる |
+| どちらの画風も乗らない | 両方 0.9 に上げる |
+| プロンプトが完全に無視される | 両方 0.4 に下げる |
+| 混ざらず継ぎ接ぎに見える | 2 枚の明度・彩度を近づけてから読み込む |
+
+片方だけの効果を確認したいときは、その `StyleModelApply` を選んで
+**Ctrl+B** でバイパスすると素通しになる。
+
+### crop を none にしてある
+
+`CLIPVisionEncode` #39 / #46 の `crop` は、テンプレート既定の `center` ではなく
+**`none`** にしてある。`center` は中央を正方形に切り取るため画面端の色が
+トークンに入らない。色彩を混ぜる用途では `none` のほうが元画像の色を拾う。
+
+### 必要なもの
+
+`Flux1_StyleRef_x_ControlNet.json` と同じ。ただし **ControlNet は不要**。
+
+| 種類 | ファイル | 置き場所 |
+|---|---|---|
+| diffusion model | `flux1-dev-fp8.safetensors` | `models/diffusion_models/` |
+| text encoder | `t5xxl_fp8_e4m3fn_scaled.safetensors` + `clip_l.safetensors` | `models/text_encoders/` |
+| VAE | `ae.safetensors` | `models/vae/` |
+| style model | `flux1-redux-dev.safetensors` | `models/style_models/` |
+| clip vision | `sigclip_vision_patch14_384.safetensors` | `models/clip_vision/` |
+
+**カスタムノードは不要。** すべて ComfyUI 標準ノード。
+
+構図を指定する経路が無いので、レイアウトはプロンプト #6 と seed #25 任せになる。
+構図も固定したい場合は `Flux1_StyleRef_x_ControlNet.json` 側に
+`StyleModelApply` をもう 1 段足すほうが早い。
