@@ -193,8 +193,16 @@ FLUX.2 版と同じ役割分担を、8GB VRAM で動く構成にしたもの。
 ```
 CLIPTextEncode #6 ─ FluxGuidance #26 ─ StyleModelApply #41 ─ ControlNetApplyAdvanced #54 ─ BasicGuider #22
                                             │                        │
-Image1 ─ CLIPVisionEncode #39 ───────────────┘        Image2 ─ ImageScale #56
+Image1 ─ CLIPVisionEncode #39 ───────────────┘        Image2 ─ ImageScale #56 ─┬─ #54
+                                                                              └─ PreviewImage #58
 ```
+
+`PreviewImage` #58 には `#54` に渡るのと**同じ IMAGE** を分岐させてある。
+実行するとリサイズ・クロップ後の Image2 がそのまま表示されるので、
+構図が切れていないか、意図した画像が入っているかを目視で確認できる。
+前処理ノードは挟んでいないため、表示は「Image2 を生成解像度に合わせたもの」。
+エッジ抽出後の姿を見たい場合は #56 と #54 の間に標準ノード `Canny` を入れ、
+その出力を #58 にも繋ぐ。
 
 `#54` の `negative` には空の `CLIPTextEncode` #51 を繋いである。
 `BasicGuider` は positive しか使わないため negative 出力は捨てている。
