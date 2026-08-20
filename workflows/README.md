@@ -273,12 +273,13 @@ if self.controlnet_mode_embedder is not None and len(control_type) > 0:
 
 | 症状 | 変更 |
 |---|---|
-| 構図が Image2 に従わない | #54 `strength` 0.90 → 1.00、`end_percent` 0.85 → 1.00 |
+| 構図が Image2 に従わない | #54 `strength` 0.75 → 0.90、`end_percent` 0.85 → 1.00 |
 | 線画の線が出力に残る | #54 `end_percent` 0.85 → 0.60 |
-| 画風が乗らない | #41 `strength` 0.9 → 1.1 |
-| 画風が強すぎてプロンプトが効かない | #41 `strength` 0.9 → 0.5 |
+| 画風が乗らない | #41 `strength` 0.6 → 0.9 |
+| 画風が強すぎてプロンプトが効かない | #41 `strength` 0.6 → 0.3 |
 
-既定値は実際に良い結果が出た組み合わせ（#41 `0.9` / #54 `0.90` / `end_percent` `0.85`）。
+実際に良い結果が出た組み合わせは #41 `0.9` / #54 `0.90` / `end_percent` `0.85`。
+既定値は初期値のままにしてあるので、必要なら手動で上げる。
 
 解像度は `PrimitiveNode` #34 (width) / #35 (height) の 2 箇所だけ変えれば、
 latent・`ModelSamplingFlux`・Image2 リサイズの 3 つに伝わる。
