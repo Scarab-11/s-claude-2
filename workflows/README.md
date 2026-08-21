@@ -7,6 +7,7 @@
 | `Flux1_StyleRef_x_ControlNet.json` | **推奨。** FLUX.1-dev 版。Image1 の画風 × Image2 の構図。8GB VRAM 向け |
 | `Flux1_StyleBlend_TwoImages.json` | FLUX.1-dev 版。**2枚の画風を融合**させる（構図制御なし）。8GB VRAM 向け |
 | `Flux1_FaceSwap_StyleFromImage1.json` | FLUX.1-dev 版。**Image1 の画風のまま顔だけ Image2 に差し替える**。8GB VRAM 向け |
+| `Flux1_Repaint_Image2_in_Image1Style.json` | FLUX.1-dev 版。**Image1 の画風で Image2 を丸ごと描き直す**。位置合わせ不要。8GB VRAM 向け |
 | `Flux2_StyleRef_x_ControlNet.json` | FLUX.2-dev 版。同じ構成だが **VRAM 16GB 以上が必要** |
 | `Krea2_StyleRef_x_Structure.json` | Krea2 版。depth ControlNet と img2img を切り替えられる統合版 |
 | `Krea2_StyleRef_x_DepthControlNet.json` | Krea2 版。depth ControlNet のみの初版 |
@@ -16,6 +17,7 @@
 - [FLUX.1 版](#flux1-版) — 画風 × 構図
 - [2枚の画風を融合する版](#2枚の画風を融合する版)
 - [Face Swap 版](#face-swap-版)
+- [Image1 の画風で Image2 を描き直す版](#image1-の画風で-image2-を描き直す版)
 - [Krea2 版](#krea2-版)
 
 このドキュメントでは、ノードを**キャンバス上のタイトル**（例:「Image1 — 画風の参照」）で
@@ -605,3 +607,77 @@ Image1 が大きすぎると 8GB では OOM になるため、1024×1024 相当�
 Image2 の顔立ちは画素の形として伝わるが、描き直す過程でどうしても崩れる。
 人物を特定できるレベルで同一性を移したい場合は
 PuLID-Flux / InstantID / ReActor などのノードパックが必要になる。
+
+---
+
+## Image1 の画風で Image2 を描き直す版
+
+`Flux1_Repaint_Image2_in_Image1Style.json`
+
+**Image2 をそのまま下地にして、Image1 の画風で描き直す。**
+顔も構図も最初から正しい位置にあるので、**マスクも位置合わせも要らない。**
+
+| 入力 | ノード | 決めるもの |
+|---|---|---|
+| **Image1** | 「Image1 — 画風の参照」 | 画風・色調・タッチ |
+| **Image2** | 「Image2 — 顔と構図」 | 顔・構図・全体の内容 |
+
+```
+Image1 → Image1 を画風として読み取る → 画風の強さ（Redux）→ サンプラー
+Image2 → 生成解像度に合わせる → latent（出発点） → サンプラー
+```
+
+### Face Swap 版との使い分け
+
+| | このワークフロー | `Flux1_FaceSwap_StyleFromImage1.json` |
+|---|---|---|
+| 出力の構図 | **Image2** | **Image1** |
+| Image1 の背景・服 | 残らない | そのまま残る |
+| マスク | 不要 | 必要 |
+| 位置合わせ | 不要 | 必要 |
+| 手間 | 少ない | 多い |
+
+「Image1 の絵柄で Image2 の人物を描きたい」ならこちら。
+「Image1 の絵はそのままで顔だけ差し替えたい」なら Face Swap 版。
+
+### 手順
+
+1. 「Image1 — 画風の参照」に、画風の元にしたい絵を読み込む
+2. 「Image2 — 顔と構図」に、顔と構図の元にしたい絵を読み込む
+3. 「width（生成幅）」「height（生成高さ）」を Image2 の縦横比に合わせる
+4. 実行
+
+手順 3 を飛ばすと Image2 が中央で切り取られる。
+「出発点の確認（切り取り位置）」で切れ方を確認できる。
+
+### 一番効くつまみ
+
+「denoise ◀ Image1 の画風にどれだけ寄せるか」。この 1 つで結果がほぼ決まる。
+
+| `denoise` | 結果 |
+|---|---|
+| `0.35` | Image2 のほぼそのまま。色味が少し寄る程度 |
+| `0.55` | 既定値。顔立ちを保ちつつ画風が乗る |
+| `0.75` | しっかり描き直される。顔立ちは崩れ始める |
+| `0.90` | Image2 は構図のあたり程度 |
+
+**顔を残したいなら下げる。画風を強くしたいなら上げる。**
+まず `0.55` で 1 枚出してから振る。
+
+### 調整箇所
+
+| 症状 | 変更するノード | 変更内容 |
+|---|---|---|
+| 写真のままで絵にならない | 「denoise ◀ Image1 の画風にどれだけ寄せるか」 | `0.55` → `0.70` |
+| 顔が別人になる | 同上 | `0.55` → `0.40` |
+| 画風が乗らない | 「画風の強さ（Redux）」 | `strength` `1.0` → `1.3` |
+| 画風が強すぎて崩れる | 同上 | `strength` `1.0` → `0.7` |
+| 仕上がりが硬い・AI っぽい | 「FluxGuidance ◀ 絵の磨き具合」 | `2.5` → `1.8` |
+| 構図が切れる | 「width（生成幅）」「height（生成高さ）」 | Image2 の縦横比に合わせる |
+
+プロンプトは人物ではなく**画材と質感**を書く。顔と構図は Image2 が
+担当しているので、人物の描写を書くとそちらに引っ張られて顔が変わる。
+
+### 必要なもの
+
+`Flux1_StyleBlend_TwoImages.json` と同じ。**カスタムノードも ControlNet も不要。**
