@@ -1,8 +1,8 @@
 {
   "id": "flux1-faceswap-style-from-image1",
   "revision": 0,
-  "last_node_id": 61,
-  "last_link_id": 153,
+  "last_node_id": 62,
+  "last_link_id": 156,
   "nodes": [
     {
       "id": 17,
@@ -42,7 +42,7 @@
       "widgets_values": [
         "simple",
         24,
-        0.55
+        0.75
       ],
       "title": "denoise ◀ 顔をどれだけ描き直すか"
     },
@@ -93,7 +93,7 @@
         "Node name for S&R": "StyleModelApply"
       },
       "widgets_values": [
-        0.8,
+        1.0,
         "multiply"
       ],
       "title": "画風の適用（Redux）"
@@ -845,7 +845,8 @@
             118,
             133,
             141,
-            150
+            150,
+            154
           ]
         },
         {
@@ -934,16 +935,14 @@
           "name": "width",
           "type": "INT",
           "links": [
-            134,
-            137
+            134
           ]
         },
         {
           "name": "height",
           "type": "INT",
           "links": [
-            135,
-            138
+            135
           ]
         },
         {
@@ -1059,7 +1058,7 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "Image2 を Image1 の解像度に合わせる",
+      "title": "Image2 の顔の大きさ",
       "inputs": [
         {
           "name": "image",
@@ -1069,7 +1068,7 @@
         {
           "name": "width",
           "type": "INT",
-          "link": 137,
+          "link": null,
           "widget": {
             "name": "width"
           }
@@ -1077,7 +1076,7 @@
         {
           "name": "height",
           "type": "INT",
-          "link": 138,
+          "link": null,
           "widget": {
             "name": "height"
           }
@@ -1088,7 +1087,7 @@
           "name": "IMAGE",
           "type": "IMAGE",
           "links": [
-            142
+            155
           ]
         }
       ],
@@ -1100,7 +1099,7 @@
       "widgets_values": [
         "lanczos",
         832,
-        1216,
+        1232,
         "center"
       ]
     },
@@ -1118,7 +1117,7 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "Image2 の顔を貼り付け",
+      "title": "顔をマスクの形で合成",
       "inputs": [
         {
           "name": "destination",
@@ -1128,7 +1127,7 @@
         {
           "name": "source",
           "type": "IMAGE",
-          "link": 142
+          "link": 156
         },
         {
           "name": "mask",
@@ -1162,7 +1161,7 @@
       "id": 59,
       "type": "PreviewImage",
       "pos": [
-        1470,
+        1750,
         -490
       ],
       "size": [
@@ -1346,10 +1345,63 @@
       "outputs": [],
       "properties": {},
       "widgets_values": [
-        "## 手順\n1. 「Image1 — 画風の元＆キャンバス（顔をマスクで塗る）」に、画風の元に\n   したい絵を読み込む。これがキャンバスになる。\n2. そのノードの**画像部分を右クリック** → **Open in MaskEditor** を選び、\n   差し替えたい**顔の範囲をブラシで塗る**。\n3. 右下の **Save to node** を押す。**押さないと保存されない。**\n   成功するとファイル名の表示が `clipspace/clipspace-mask-....png [input]`\n   に変わる。この変化がマスクが入った証拠。\n4. 「Image2 — 顔の形」に、顔の形の元にしたい絵を読み込む。\n5. 実行する。\n\n## まず確認するところ\n「貼り付け結果（描き直す前）」に **Image2 の顔が見えているか**。\nここが Image1 のままなら、マスクが空。手順 3 に戻る。\nマスクが空だと、denoise を何に変えても出力は Image1 と同じになる。\n\n## 位置合わせ\n「Image2 の顔を貼り付け」の `x` / `y` で Image2 をずらせる。\n「貼り付け結果（描き直す前）」を見ながら、顔がマスクの位置に来るよう調整する。\nImage1 と Image2 で顔の大きさや向きが大きく違うと破綻するので、\n**似た構図の 2 枚**を使うのが前提。\n\n## 調整箇所\n| 症状 | 変更するノード | 変更内容 |\n|---|---|---|\n| 顔が Image2 に似ない | 「denoise ◀ 顔をどれだけ描き直すか」 | denoise 0.55 → 0.40 |\n| 貼り付けた跡が浮いて見える | 同上 | denoise 0.55 → 0.70 |\n| 継ぎ目の線が見える | 「マスクの縁をぼかす」 | 4 つの値を 24 → 48 |\n| 顔だけ画風が違う | 「画風の適用（Redux）」 | strength 0.8 → 1.0 |\n| 塗った範囲が足りない | 「マスクを少し広げる」 | expand 8 → 24 |\n\n## 仕組み\n貼り付け → マスク付き img2img → マスク外を元に戻す、の 3 段。\n\n```\nImage1 ─┬ 解像度を取得\n        ├ 画風として読み取る → 画風の適用（Redux）\n        ├ 顔を貼り付け     の下地\n        └ マスク外を戻す   の下地\n  マスク ─ 少し広げる → 縁をぼかす → 上の 3 つと「マスク内だけ描き直す」へ\n\nImage2 ─ 解像度を合わせる → 顔を貼り付け\n\n顔を貼り付け → latent 化 → マスク内だけ描き直す → サンプラー\nサンプラー → latent → 画像 → マスク外を Image1 に戻す → 最終出力\n```\n\n「マスク内だけ描き直す」でマスクの内側だけがノイズの対象になり、\n最後の「マスク外を Image1 に戻す」でマスクの外側を Image1 の画素そのものに\n戻す。**顔以外は 1 ピクセルも変わらない。**\n\n解像度は「Image1 の解像度を取得」で Image1 から読む。マスクとキャンバスの\n大きさが必ず一致するので、マスクをリサイズする経路が要らない。\nImage1 が大きすぎると 8GB では OOM になるため、1024x1024 相当までに収める。\n\n## 必要なファイル\n| 種類 | ファイル |\n|---|---|\n| diffusion model | flux1-dev-fp8.safetensors |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l |\n| VAE | ae.safetensors |\n| style model | flux1-redux-dev.safetensors |\n| clip vision | sigclip_vision_patch14_384.safetensors |\n\nカスタムノード不要。ControlNet も不要。\n\n## 限界\nこれは**貼り付けた画素の形をなぞる方式**であって、顔認識を使った\nface swap ではない。描き直す過程でどうしても顔立ちは崩れる。\n人物を特定できるレベルで同一性を移したい場合は\nPuLID-Flux / InstantID / ReActor などのノードパックが要る。"
+        "## 手順\n1. 「Image1 — 画風の元＆キャンバス（顔をマスクで塗る）」に、画風の元に\n   したい絵を読み込む。これがキャンバスになる。\n2. そのノードの**画像部分を右クリック** → **Open in MaskEditor** を選び、\n   差し替えたい**顔の範囲をブラシで塗る**。\n3. 右下の **Save to node** を押す。**押さないと保存されない。**\n   成功するとファイル名の表示が `clipspace/...` に変わる。\n4. 「Image2 — 顔の形」に、顔の形の元にしたい絵を読み込む。\n5. 実行する。\n\n## マスクは顔だけにする\n髪まで塗ると髪ごと描き直しになり、Image1 の絵柄が失われやすい。\n**眉から顎まで、輪郭の内側だけ**を塗るほうがきれいに馴染む。\n髪や首は Image1 のまま残したほうが結果が良い。\n\n## 位置と大きさの合わせ方\n「Image2 の顔の大きさ」の `width` / `height` で Image2 を縮め、\n「Image2 の位置を決める（仮置き）」の `x` / `y` で置く場所を決める。\nこの 2 つは Image1 の解像度とは無関係に自由に決めてよい。\n\n手順:\n1. まず「貼り付け結果（描き直す前）」を見る。\n2. Image2 の顔が大きすぎるなら `width` / `height` を小さくする。\n3. 位置がずれているなら `x` / `y` でずらす。`x` は右、`y` は下が正。\n4. 顔がマスクの位置にぴったり重なったら実行。\n\nここが合っていないと、いくら設定を変えてもきれいにならない。\n\n## 出力が写真のままで Image1 の絵柄にならないとき\n「denoise ◀ 顔をどれだけ描き直すか」を上げる。ここが一番効く。\nマスクの外は一切変わらないので、上げても顔以外は劣化しない。\n\n| denoise | 結果 |\n|---|---|\n| 0.40 | Image2 の写真の質感がそのまま残る。浮いて見える |\n| 0.60 | まだ写真寄り |\n| 0.75 | 既定値。Image1 の絵柄で描き直されつつ顔立ちは残る |\n| 0.90 | ほぼ描き直し。Image2 の面影は薄くなる |\n\n顔立ちを取るか絵柄を取るかの綱引きになる。0.75 から始めて調整する。\n\n## 出力が Image1 と全く同じになるとき\nマスクが空。「貼り付け結果（描き直す前）」に Image2 の顔が見えていなければ確定。\nアルファチャンネルの無い画像は全面ゼロのマスクになるため、\n貼り付けも描き直しも戻しも全部空振りする。手順 2〜3 をやり直す。\n\n## 調整箇所\n| 症状 | 変更するノード | 変更内容 |\n|---|---|---|\n| 写真の質感が残る・浮いて見える | 「denoise ◀ 顔をどれだけ描き直すか」 | 0.75 → 0.85 |\n| 顔が Image2 に似ない | 同上 | 0.75 → 0.60 |\n| 顔だけ画風が違う | 「画風の適用（Redux）」 | strength 1.0 → 1.2 |\n| 継ぎ目の線が見える | 「マスクの縁をぼかす」 | 4 つの値を 24 → 48 |\n| 塗った範囲が足りない | 「マスクを少し広げる」 | expand 8 → 24 |\n| 顔が大きすぎる・位置がずれる | 「Image2 の顔の大きさ」「Image2 の位置を決める（仮置き）」 | 上の手順を参照 |\n\n## 仕組み\n```\nImage1 ─┬ 解像度を取得\n        ├ 画風として読み取る → 画風の適用（Redux）\n        ├ 「Image2 の位置を決める（仮置き）」の下地\n        ├ 「顔をマスクの形で合成」の下地\n        └ 「マスク外を Image1 に戻す」の下地\n  マスク ─ 少し広げる → 縁をぼかす → 合成 3 つと「マスク内だけ描き直す」へ\n\nImage2 ─ 顔の大きさ → 位置を決める（仮置き） → 顔をマスクの形で合成\n\n顔をマスクの形で合成 → latent 化 → マスク内だけ描き直す → サンプラー\nサンプラー → latent → 画像 → マスク外を Image1 に戻す → 最終出力\n```\n\n「Image2 の位置を決める（仮置き）」はマスクを繋いでいないので、\nImage2 の矩形がそのまま Image1 の上に置かれる。ここで位置と大きさが決まる。\n次の「顔をマスクの形で合成」がマスクを掛けて、顔の範囲だけを採用する。\n\n「マスク内だけ描き直す」でマスクの内側だけがノイズの対象になり、\n最後の「マスク外を Image1 に戻す」でマスクの外側を Image1 の画素そのものに\n戻す。**顔以外は 1 ピクセルも変わらない。**\n\n## 必要なファイル\n| 種類 | ファイル |\n|---|---|\n| diffusion model | flux1-dev-fp8.safetensors |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l |\n| VAE | ae.safetensors |\n| style model | flux1-redux-dev.safetensors |\n| clip vision | sigclip_vision_patch14_384.safetensors |\n\nカスタムノード不要。ControlNet も不要。\n\n## 限界\nこれは**貼り付けた画素の形をなぞる方式**であって、顔認識を使った\nface swap ではない。描き直す過程でどうしても顔立ちは崩れる。\n人物を特定できるレベルで同一性を移したい場合は\nPuLID-Flux / InstantID / ReActor などのノードパックが要る。"
       ],
       "color": "#432",
       "bgcolor": "#653"
+    },
+    {
+      "id": 62,
+      "type": "ImageCompositeMasked",
+      "pos": [
+        1470,
+        -490
+      ],
+      "size": [
+        260,
+        150
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "Image2 の位置を決める（仮置き）",
+      "inputs": [
+        {
+          "name": "destination",
+          "type": "IMAGE",
+          "link": 154
+        },
+        {
+          "name": "source",
+          "type": "IMAGE",
+          "link": 155
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "link": null,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            156
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "ImageCompositeMasked"
+      },
+      "widgets_values": [
+        0,
+        0,
+        false
+      ]
     }
   ],
   "links": [
@@ -1522,22 +1574,6 @@
       "IMAGE"
     ],
     [
-      137,
-      52,
-      0,
-      53,
-      1,
-      "INT"
-    ],
-    [
-      138,
-      52,
-      1,
-      53,
-      2,
-      "INT"
-    ],
-    [
       139,
       40,
       1,
@@ -1559,14 +1595,6 @@
       0,
       54,
       0,
-      "IMAGE"
-    ],
-    [
-      142,
-      53,
-      0,
-      54,
-      1,
       "IMAGE"
     ],
     [
@@ -1655,6 +1683,30 @@
       0,
       9,
       0,
+      "IMAGE"
+    ],
+    [
+      154,
+      40,
+      0,
+      62,
+      0,
+      "IMAGE"
+    ],
+    [
+      155,
+      53,
+      0,
+      62,
+      1,
+      "IMAGE"
+    ],
+    [
+      156,
+      62,
+      0,
+      54,
+      1,
       "IMAGE"
     ]
   ],
