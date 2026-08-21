@@ -1,8 +1,8 @@
 {
   "id": "flux1-shapeonly-face-from-image2",
   "revision": 0,
-  "last_node_id": 60,
-  "last_link_id": 149,
+  "last_node_id": 64,
+  "last_link_id": 158,
   "nodes": [
     {
       "id": 27,
@@ -265,7 +265,8 @@
           "slot_index": 0,
           "links": [
             12,
-            142
+            142,
+            157
           ]
         }
       ],
@@ -600,7 +601,7 @@
         {
           "name": "conditioning",
           "type": "CONDITIONING",
-          "link": 141
+          "link": 158
         }
       ],
       "outputs": [
@@ -956,7 +957,8 @@
           "name": "CONTROL_NET",
           "type": "CONTROL_NET",
           "links": [
-            133
+            133,
+            150
           ]
         }
       ],
@@ -1078,7 +1080,8 @@
           "type": "IMAGE",
           "links": [
             144,
-            145
+            145,
+            151
           ]
         }
       ],
@@ -1103,7 +1106,7 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "形の適用（ControlNet）",
+      "title": "形の適用 1段目・深度（立体）",
       "inputs": [
         {
           "name": "positive",
@@ -1137,13 +1140,15 @@
           "name": "positive",
           "type": "CONDITIONING",
           "links": [
-            141
+            153
           ]
         },
         {
           "name": "negative",
           "type": "CONDITIONING",
-          "links": null
+          "links": [
+            154
+          ]
         }
       ],
       "properties": {
@@ -1171,7 +1176,7 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "Image2 → 深度マップ（形だけを抽出）",
+      "title": "Image2 → 深度マップ（立体を抽出）",
       "inputs": [
         {
           "name": "image",
@@ -1213,7 +1218,7 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "モデルに渡る Image2 の情報（これが全て）",
+      "title": "1段目に渡る情報（深度）",
       "inputs": [
         {
           "name": "images",
@@ -1248,7 +1253,7 @@
       "outputs": [],
       "properties": {},
       "widgets_values": [
-        "## 考え方\n**Image2 の画素はモデルに一切渡らない。**\n深度マップに変換してから ControlNet に入れるので、モデルが Image2 から\n受け取れるのは立体的な形だけ。色も筆致も写真的な質感も含まれない。\n\nプロンプトで Image2 の画風を打ち消そうとしても効かないのは、\n参照ラテントがフルカラーの画素をそのまま渡していたから。\n見えているものは言葉では消せない。だから経路ごと断つ。\n\n| 何を | どこから | 割合 |\n|---|---|---|\n| 画風・色・雰囲気 | 「Image1 — 画風・色・雰囲気」 | 100% |\n| 形 | 「Image2 — 形だけを使う」 | 100% |\n\n```\nImage1 → 画風として読み取る → 画風の強さ（Redux）┐\n                                                 ├→ 形の適用（ControlNet）→ サンプラー\nImage2 → 解像度を自動決定 → 深度マップ ──────────┘\n                                └→ モデルに渡る Image2 の情報\n```\n\n## 手順\n1. 「Image1 — 画風・色・雰囲気」に画風の元を読み込む\n2. 「Image2 — 形だけを使う」に形の元を読み込む\n3. 実行\n\n解像度の設定は不要。Image2 の縦横比から自動で決まる。\n\n## 必ず確認すること\n「モデルに渡る Image2 の情報（これが全て）」を見る。\n**グレーの立体図が出ていれば正常。** ここに色が付いていたら\n深度前処理が効いていない。\n\n## 調整箇所\n| 症状 | 変更するノード | 変更内容 |\n|---|---|---|\n| 形が Image2 に従わない | 「形の適用（ControlNet）」 | strength 0.85 → 1.00 |\n| 形が効きすぎて画風が乗らない | 同上 | strength 0.85 → 0.65 |\n| 顔つきが硬い・のっぺりする | 同上 | end_percent 0.90 → 0.70 |\n| 画風が乗らない | 「画風の強さ（Redux）」 | strength 1.0 → 1.3 |\n| 仕上がりが硬い・AI っぽい | 「FluxGuidance ◀ 絵の磨き具合」 | 2.5 → 1.8 |\n\nプロンプトには**画材だけ**を書く。人物の描写を書くと、\nそちらに引っ張られて ControlNet の形と喧嘩する。\n\n## 深度ではなく線で形を渡したいとき\n「Image2 → 深度マップ（形だけを抽出）」を ComfyUI 標準の `Canny` に\n差し替える。`comfyui_controlnet_aux` が不要になる代わりに、\n顔の立体（鼻の高さ・頬骨・顎）は伝わりにくくなる。\n線画から起こす場合は `Canny` のほうが向く。\n\n## この方式の限界\n**Image2 の画風が混ざらないことは構造的に保証されるが、**\n**顔の似方は Best Face Swap LoRA より弱い。**\n深度マップは鼻の高さ・顎の輪郭・頬骨は伝えるが、細かい造作までは\n伝えない。似顔絵としての精度を優先するなら LoRA 版、\n画風の純度を優先するならこちら。\n\n## 必要なもの\n| 種類 | ファイル | 置き場所 |\n|---|---|---|\n| diffusion model | flux1-dev-fp8.safetensors | `models/diffusion_models/` |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l | `models/text_encoders/` |\n| VAE | ae.safetensors | `models/vae/` |\n| style model | flux1-redux-dev.safetensors | `models/style_models/` |\n| clip vision | sigclip_vision_patch14_384.safetensors | `models/clip_vision/` |\n| ControlNet | FLUX.1-dev-Controlnet-Union-Pro-2.0 | `models/controlnet/` |\n\nカスタムノードは `comfyui_controlnet_aux` の 1 つだけ（深度前処理用）。\nKrea2 版で既に使っているものと同じ。"
+        "## 考え方\n**Image2 の画素はモデルに一切渡らない。**\nグレースケールの形の情報に変換してから ControlNet に入れるので、\nモデルが Image2 から受け取れるのは形だけ。色も筆致も含まれない。\n\nプロンプトで Image2 の画風を打ち消そうとしても効かないのは、\n参照画像がフルカラーの画素をそのまま渡していたから。\n見えているものは言葉では消せない。だから経路ごと断つ。\n\n| 何を | どこから | 割合 |\n|---|---|---|\n| 画風・色・雰囲気 | 「Image1 — 画風・色・雰囲気」 | 100% |\n| 形 | 「Image2 — 形だけを使う」 | 100% |\n\n## 形は 2 段で渡す\n```\nImage1 → 画風として読み取る → 画風の強さ（Redux）┐\n                                                 ↓\nImage2 ─┬ 深度マップ → 形の適用 1段目・深度（立体）\n        │                        ↓\n        └ 輪郭線   → 形の適用 2段目・輪郭線 → サンプラー\n```\n\n| 段 | 渡すもの | 得意なこと |\n|---|---|---|\n| 1段目 | 深度マップ | 鼻の高さ・頬骨・顎の張り。**立体** |\n| 2段目 | 輪郭線 | 目・鼻・口の位置と形。**造作** |\n\n深度だけだとのっぺりして似ない。輪郭線だけだと立体が出ない。\n**2 つ重ねると顔の似方がはっきり上がる。**\n\n`ControlNetApplyAdvanced` は直列に繋ぐと連結される\n(`nodes.py:966-971` の `previous_controlnet`)。両方の制御が同時にかかる。\nControlNet モデルの読み込みは 1 つで済む。Apply 側が内部で `copy()` して\n重みを共有するため、VRAM は 1 個分しか使わない (`nodes.py:970`)。\n\n## 手順\n1. 「Image1 — 画風・色・雰囲気」に画風の元を読み込む\n2. 「Image2 — 形だけを使う」に形の元を読み込む\n3. 実行\n\n解像度の設定は不要。Image2 の縦横比から自動で決まる。\n\n## 必ず確認すること\n「1段目に渡る情報（深度）」→ **グレーの立体図**\n「2段目に渡る情報（輪郭線）」→ **黒地に白い線**\n\nこの 2 つがモデルに渡る Image2 の情報の全て。\nここに色が付いていたら前処理が効いていない。\n\n## 調整の順番\n**1. まず 1段目（深度）だけで出す。**\n「形の適用 2段目・輪郭線（Ctrl+B で無効）」を選んで Ctrl+B。\n\n**2. 似方が足りなければ 2段目を有効にする。**\nCtrl+B をもう一度押して戻す。\n\n| 症状 | 変更するノード | 変更内容 |\n|---|---|---|\n| 顔が似ない | 「形の適用 2段目・輪郭線（Ctrl+B で無効）」 | strength 0.45 → 0.70 |\n| 線が絵に残る | 同上 | end_percent 0.60 → 0.40 |\n| 線が拾えていない | 「Image2 → 輪郭線（造作を抽出）」 | low_threshold 0.15 → 0.08 |\n| 線が多すぎる | 同上 | high_threshold 0.40 → 0.70 |\n| 立体が出ない | 「形の適用 1段目・深度（立体）」 | strength 0.85 → 1.00 |\n| 形が強すぎて画風が乗らない | 1段目・2段目の strength を両方下げる | — |\n| 画風が乗らない | 「画風の強さ（Redux）」 | strength 1.0 → 1.3 |\n| 仕上がりが硬い | 「FluxGuidance ◀ 絵の磨き具合」 | 2.5 → 1.8 |\n\n**2段目の end_percent を低めにしてあるのが要点。**\n輪郭線は序盤で顔の造作を決めるのに使い、後半は画風に任せる。\n1.0 にすると線がそのまま絵に残る。\n\nプロンプトには**画材だけ**を書く。人物の描写を書くと、\nそちらに引っ張られて ControlNet の形と喧嘩する。\n\n## 必要なもの\n| 種類 | ファイル | 置き場所 |\n|---|---|---|\n| diffusion model | flux1-dev-fp8.safetensors | `models/diffusion_models/` |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l | `models/text_encoders/` |\n| VAE | ae.safetensors | `models/vae/` |\n| style model | flux1-redux-dev.safetensors | `models/style_models/` |\n| clip vision | sigclip_vision_patch14_384.safetensors | `models/clip_vision/` |\n| ControlNet | FLUX.1-dev-Controlnet-Union-Pro-2.0 | `models/controlnet/` |\n\nカスタムノードは `comfyui_controlnet_aux` の 1 つだけ（深度前処理用）。\n輪郭線は ComfyUI 標準の `Canny` なので追加不要。"
       ],
       "color": "#432",
       "bgcolor": "#653"
@@ -1304,6 +1309,186 @@
         "Node name for S&R": "GetImageSize"
       },
       "widgets_values": []
+    },
+    {
+      "id": 61,
+      "type": "SetUnionControlNetType",
+      "pos": [
+        1850,
+        -1130
+      ],
+      "size": [
+        280,
+        60
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "Union の制御タイプ（2段目・canny）",
+      "inputs": [
+        {
+          "name": "control_net",
+          "type": "CONTROL_NET",
+          "link": 150
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONTROL_NET",
+          "type": "CONTROL_NET",
+          "links": [
+            155
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "SetUnionControlNetType"
+      },
+      "widgets_values": [
+        "canny/lineart/anime_lineart/mlsd"
+      ]
+    },
+    {
+      "id": 62,
+      "type": "Canny",
+      "pos": [
+        1850,
+        -1000
+      ],
+      "size": [
+        260,
+        110
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "Image2 → 輪郭線（造作を抽出）",
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 151
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            152,
+            156
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "Canny"
+      },
+      "widgets_values": [
+        0.15,
+        0.4
+      ]
+    },
+    {
+      "id": 63,
+      "type": "PreviewImage",
+      "pos": [
+        1850,
+        -840
+      ],
+      "size": [
+        260,
+        300
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "2段目に渡る情報（輪郭線）",
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 152
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 64,
+      "type": "ControlNetApplyAdvanced",
+      "pos": [
+        1850,
+        -460
+      ],
+      "size": [
+        280,
+        160
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "形の適用 2段目・輪郭線（Ctrl+B で無効）",
+      "inputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 153
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 154
+        },
+        {
+          "name": "control_net",
+          "type": "CONTROL_NET",
+          "link": 155
+        },
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 156
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 157,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "links": [
+            158
+          ]
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "ControlNetApplyAdvanced"
+      },
+      "widgets_values": [
+        0.45,
+        0.0,
+        0.6
+      ]
     }
   ],
   "links": [
@@ -1508,14 +1693,6 @@
       "IMAGE"
     ],
     [
-      141,
-      54,
-      0,
-      22,
-      1,
-      "CONDITIONING"
-    ],
-    [
       142,
       10,
       0,
@@ -1578,6 +1755,78 @@
       30,
       2,
       "INT"
+    ],
+    [
+      150,
+      52,
+      0,
+      61,
+      0,
+      "CONTROL_NET"
+    ],
+    [
+      151,
+      56,
+      0,
+      62,
+      0,
+      "IMAGE"
+    ],
+    [
+      152,
+      62,
+      0,
+      63,
+      0,
+      "IMAGE"
+    ],
+    [
+      153,
+      54,
+      0,
+      64,
+      0,
+      "CONDITIONING"
+    ],
+    [
+      154,
+      54,
+      1,
+      64,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      155,
+      61,
+      0,
+      64,
+      2,
+      "CONTROL_NET"
+    ],
+    [
+      156,
+      62,
+      0,
+      64,
+      3,
+      "IMAGE"
+    ],
+    [
+      157,
+      10,
+      0,
+      64,
+      4,
+      "VAE"
+    ],
+    [
+      158,
+      64,
+      0,
+      22,
+      1,
+      "CONDITIONING"
     ]
   ],
   "groups": [
@@ -1656,6 +1905,19 @@
         440
       ],
       "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 20,
+      "title": "輪郭線（2段目・任意）",
+      "bounding": [
+        1830,
+        -1060,
+        320,
+        640
+      ],
+      "color": "#8A8",
       "font_size": 24,
       "flags": {}
     }
