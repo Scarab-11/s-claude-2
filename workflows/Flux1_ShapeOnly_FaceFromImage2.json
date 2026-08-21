@@ -1,0 +1,1680 @@
+{
+  "id": "flux1-shapeonly-face-from-image2",
+  "revision": 0,
+  "last_node_id": 60,
+  "last_link_id": 149,
+  "nodes": [
+    {
+      "id": 27,
+      "type": "EmptySD3LatentImage",
+      "pos": [
+        130,
+        320
+      ],
+      "size": [
+        210,
+        110
+      ],
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": 146
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": 147
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": [
+            116
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "EmptySD3LatentImage"
+      },
+      "widgets_values": [
+        1024,
+        1024,
+        1
+      ]
+    },
+    {
+      "id": 17,
+      "type": "BasicScheduler",
+      "pos": [
+        1050,
+        370
+      ],
+      "size": [
+        260,
+        106
+      ],
+      "flags": {},
+      "order": 22,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 55
+        }
+      ],
+      "outputs": [
+        {
+          "name": "SIGMAS",
+          "type": "SIGMAS",
+          "links": [
+            20
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "BasicScheduler"
+      },
+      "widgets_values": [
+        "simple",
+        28,
+        1.0
+      ],
+      "title": "steps と denoise"
+    },
+    {
+      "id": 41,
+      "type": "StyleModelApply",
+      "pos": [
+        1120,
+        -770
+      ],
+      "size": [
+        320,
+        122
+      ],
+      "flags": {},
+      "order": 23,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 122
+        },
+        {
+          "name": "style_model",
+          "type": "STYLE_MODEL",
+          "link": 119
+        },
+        {
+          "name": "clip_vision_output",
+          "type": "CLIP_VISION_OUTPUT",
+          "link": 120
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            137
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "StyleModelApply"
+      },
+      "widgets_values": [
+        1.0,
+        "multiply"
+      ],
+      "title": "画風の強さ（Redux）"
+    },
+    {
+      "id": 12,
+      "type": "UNETLoader",
+      "pos": [
+        -150,
+        -220
+      ],
+      "size": [
+        311.82000732421875,
+        82
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [
+            56
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "UNETLoader",
+        "models": [
+          {
+            "name": "flux1-dev.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev.safetensors",
+            "directory": "diffusion_models"
+          }
+        ]
+      },
+      "widgets_values": [
+        "flux1-dev-fp8.safetensors",
+        "fp8_e4m3fn"
+      ]
+    },
+    {
+      "id": 11,
+      "type": "DualCLIPLoader",
+      "pos": [
+        -150,
+        -90
+      ],
+      "size": [
+        311.82000732421875,
+        130
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "slot_index": 0,
+          "links": [
+            10,
+            132
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "DualCLIPLoader",
+        "models": [
+          {
+            "name": "t5xxl_fp16.safetensors",
+            "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors",
+            "directory": "text_encoders"
+          },
+          {
+            "name": "clip_l.safetensors",
+            "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors",
+            "directory": "text_encoders"
+          }
+        ]
+      },
+      "widgets_values": [
+        "t5xxl_fp8_e4m3fn_scaled.safetensors",
+        "clip_l.safetensors",
+        "flux",
+        "default"
+      ]
+    },
+    {
+      "id": 10,
+      "type": "VAELoader",
+      "pos": [
+        -150,
+        80
+      ],
+      "size": [
+        311.82000732421875,
+        60.43000030517578
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "slot_index": 0,
+          "links": [
+            12,
+            142
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "VAELoader",
+        "models": [
+          {
+            "name": "ae.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors",
+            "directory": "vae"
+          }
+        ]
+      },
+      "widgets_values": [
+        "ae.safetensors"
+      ],
+      "title": "VAE の読み込み"
+    },
+    {
+      "id": 42,
+      "type": "StyleModelLoader",
+      "pos": [
+        -150,
+        -430
+      ],
+      "size": [
+        311.82000732421875,
+        60
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "STYLE_MODEL",
+          "type": "STYLE_MODEL",
+          "links": [
+            119
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "StyleModelLoader",
+        "models": [
+          {
+            "name": "flux1-redux-dev.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/Flux1-Redux-Dev/resolve/main/flux1-redux-dev.safetensors",
+            "directory": "style_models"
+          }
+        ]
+      },
+      "widgets_values": [
+        "flux1-redux-dev.safetensors"
+      ]
+    },
+    {
+      "id": 38,
+      "type": "CLIPVisionLoader",
+      "pos": [
+        -150,
+        -320
+      ],
+      "size": [
+        311.82000732421875,
+        60
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP_VISION",
+          "type": "CLIP_VISION",
+          "slot_index": 0,
+          "links": [
+            117
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "CLIPVisionLoader",
+        "models": [
+          {
+            "name": "sigclip_vision_patch14_384.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/sigclip_vision_384/resolve/main/sigclip_vision_patch14_384.safetensors?download=true",
+            "directory": "clip_vision"
+          }
+        ]
+      },
+      "widgets_values": [
+        "sigclip_vision_patch14_384.safetensors"
+      ]
+    },
+    {
+      "id": 8,
+      "type": "VAEDecode",
+      "pos": [
+        1590,
+        -120
+      ],
+      "size": [
+        210,
+        46
+      ],
+      "flags": {},
+      "order": 27,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 24
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 12
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            9
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "VAEDecode"
+      },
+      "widgets_values": [],
+      "title": "latent → 画像"
+    },
+    {
+      "id": 48,
+      "type": "MarkdownNote",
+      "pos": [
+        -740,
+        -480
+      ],
+      "size": [
+        560,
+        540
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "[Tutorial](https://comfyanonymous.github.io/ComfyUI_examples/flux/#redux)\n\n## Model Links\n\n**Diffusion model**\n\n- [flux1-dev.safetensors](https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev.safetensors)\n\n**Text encoder**\n\n- [clip_l.safetensors](https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors)\n- [t5xxl_fp16.safetensors](https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors) or [t5xxl_fp8_e4m3fn.safetensors](https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors)\n\n**CLIP Vision**\n\n- [sigclip_vision_patch14_384.safetensors](https://huggingface.co/Comfy-Org/sigclip_vision_384/resolve/main/sigclip_vision_patch14_384.safetensors)\n\n**Style model**\n\n- [flux1-redux-dev.safetensors](https://huggingface.co/Comfy-Org/Flux1-Redux-Dev/resolve/main/flux1-redux-dev.safetensors)\n\n**VAE**\n- [ae.safetensors](https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors)\n\nTip: You can set the weight_dtype above to one of the fp8 types if you have memory issues.\n\n**Models save location**\n\n```\nComfyUI/\n├── models/\n│   ├── diffusion_models/\n│   │   └─── flux1-dev.safetensors\n│   ├── style_models/\n│   │   └─── flux1-redux-dev.safetensors\n│   ├── text_encoders/\n│   │   ├── clip_l.safetensors\n│   │   └─── t5xxl_fp16.safetensors or t5xxl_fp8_e4m3fn.safetensors\n│   ├── clip_vision/\n│   │   └── sigclip_vision_patch14_384.safetensors\n│   └── vae/\n│       └── ae.safetensors\n```\n\n\n"
+      ],
+      "color": "#222",
+      "bgcolor": "#000"
+    },
+    {
+      "id": 39,
+      "type": "CLIPVisionEncode",
+      "pos": [
+        1120,
+        -900
+      ],
+      "size": [
+        320,
+        80
+      ],
+      "flags": {},
+      "order": 19,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip_vision",
+          "type": "CLIP_VISION",
+          "link": 117
+        },
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 118
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CLIP_VISION_OUTPUT",
+          "type": "CLIP_VISION_OUTPUT",
+          "slot_index": 0,
+          "links": [
+            120
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "CLIPVisionEncode"
+      },
+      "widgets_values": [
+        "center"
+      ],
+      "title": "Image1 を画風として読み取る"
+    },
+    {
+      "id": 13,
+      "type": "SamplerCustomAdvanced",
+      "pos": [
+        1330,
+        50
+      ],
+      "size": [
+        220,
+        326
+      ],
+      "flags": {},
+      "order": 26,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "noise",
+          "type": "NOISE",
+          "link": 37
+        },
+        {
+          "name": "guider",
+          "type": "GUIDER",
+          "link": 30
+        },
+        {
+          "name": "sampler",
+          "type": "SAMPLER",
+          "link": 19
+        },
+        {
+          "name": "sigmas",
+          "type": "SIGMAS",
+          "link": 20
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 116
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": [
+            24
+          ]
+        },
+        {
+          "name": "denoised_output",
+          "type": "LATENT",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "SamplerCustomAdvanced"
+      },
+      "widgets_values": [],
+      "title": "サンプラー"
+    },
+    {
+      "id": 16,
+      "type": "KSamplerSelect",
+      "pos": [
+        1050,
+        270
+      ],
+      "size": [
+        260,
+        58
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "SAMPLER",
+          "type": "SAMPLER",
+          "links": [
+            19
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "KSamplerSelect"
+      },
+      "widgets_values": [
+        "euler"
+      ]
+    },
+    {
+      "id": 22,
+      "type": "BasicGuider",
+      "pos": [
+        1050,
+        180
+      ],
+      "size": [
+        260,
+        46
+      ],
+      "flags": {},
+      "order": 25,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 54
+        },
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 141
+        }
+      ],
+      "outputs": [
+        {
+          "name": "GUIDER",
+          "type": "GUIDER",
+          "slot_index": 0,
+          "links": [
+            30
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "BasicGuider"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 25,
+      "type": "RandomNoise",
+      "pos": [
+        1050,
+        60
+      ],
+      "size": [
+        260,
+        82
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "NOISE",
+          "type": "NOISE",
+          "links": [
+            37
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "RandomNoise"
+      },
+      "widgets_values": [
+        1006963725794704,
+        "randomize"
+      ]
+    },
+    {
+      "id": 30,
+      "type": "ModelSamplingFlux",
+      "pos": [
+        700,
+        170
+      ],
+      "size": [
+        315,
+        130
+      ],
+      "flags": {},
+      "order": 18,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 56
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": 148
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": 149
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [
+            54,
+            55
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "ModelSamplingFlux"
+      },
+      "widgets_values": [
+        1.15,
+        0.5,
+        1024,
+        1024
+      ]
+    },
+    {
+      "id": 37,
+      "type": "Note",
+      "pos": [
+        700,
+        360
+      ],
+      "size": [
+        315,
+        117.9800033569336
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "text": ""
+      },
+      "widgets_values": [
+        "The reference sampling implementation auto adjusts the shift value based on the resolution, if you don't want this you can just bypass (CTRL-B) this ModelSamplingFlux node.\n"
+      ],
+      "color": "#222",
+      "bgcolor": "#000"
+    },
+    {
+      "id": 26,
+      "type": "FluxGuidance",
+      "pos": [
+        670,
+        -1080
+      ],
+      "size": [
+        317.3999938964844,
+        58
+      ],
+      "flags": {},
+      "order": 21,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 41
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            122
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "FluxGuidance"
+      },
+      "widgets_values": [
+        2.5
+      ],
+      "title": "FluxGuidance ◀ 絵の磨き具合"
+    },
+    {
+      "id": 6,
+      "type": "CLIPTextEncode",
+      "pos": [
+        220,
+        -10
+      ],
+      "size": [
+        422.8500061035156,
+        164.30999755859375
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 10
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            41
+          ]
+        }
+      ],
+      "title": "プロンプト（画材だけを書く）",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "a portrait painting, same medium and same palette as the reference image, loose brush work, visible paper texture, soft edges"
+      ],
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 9,
+      "type": "SaveImage",
+      "pos": [
+        1590,
+        -10
+      ],
+      "size": [
+        540,
+        540
+      ],
+      "flags": {},
+      "order": 28,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 9
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44"
+      },
+      "widgets_values": [
+        "Flux1_ShapeOnly"
+      ],
+      "title": "最終出力"
+    },
+    {
+      "id": 40,
+      "type": "LoadImage",
+      "pos": [
+        710,
+        -920
+      ],
+      "size": [
+        315,
+        314
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            118
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.44",
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "flux_redux_model_example_reference_image_1.png",
+        "image"
+      ],
+      "title": "Image1 — 画風・色・雰囲気"
+    },
+    {
+      "id": 51,
+      "type": "CLIPTextEncode",
+      "pos": [
+        1030,
+        -90
+      ],
+      "size": [
+        300,
+        110
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "ネガティブプロンプト（空でよい）",
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 132
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            138
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        ""
+      ],
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 52,
+      "type": "ControlNetLoader",
+      "pos": [
+        690,
+        -120
+      ],
+      "size": [
+        320,
+        60
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CONTROL_NET",
+          "type": "CONTROL_NET",
+          "links": [
+            133
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "ControlNetLoader"
+      },
+      "widgets_values": [
+        "FLUX.1-dev-Controlnet-Union-Pro-2.0.safetensors"
+      ],
+      "title": "ControlNet モデルの読み込み"
+    },
+    {
+      "id": 53,
+      "type": "SetUnionControlNetType",
+      "pos": [
+        690,
+        -20
+      ],
+      "size": [
+        320,
+        60
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "Union の制御タイプ",
+      "inputs": [
+        {
+          "name": "control_net",
+          "type": "CONTROL_NET",
+          "link": 133
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONTROL_NET",
+          "type": "CONTROL_NET",
+          "links": [
+            139
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "SetUnionControlNetType"
+      },
+      "widgets_values": [
+        "depth"
+      ]
+    },
+    {
+      "id": 55,
+      "type": "LoadImage",
+      "pos": [
+        690,
+        -480
+      ],
+      "size": [
+        310,
+        314
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "Image2 — 形だけを使う",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            134
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "example.png",
+        "image"
+      ]
+    },
+    {
+      "id": 56,
+      "type": "FluxKontextImageScale",
+      "pos": [
+        1030,
+        -480
+      ],
+      "size": [
+        300,
+        60
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "Image2 の縦横比から解像度を自動決定",
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 134
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            144,
+            145
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "FluxKontextImageScale"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 54,
+      "type": "ControlNetApplyAdvanced",
+      "pos": [
+        1030,
+        -300
+      ],
+      "size": [
+        300,
+        160
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "形の適用（ControlNet）",
+      "inputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 137
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 138
+        },
+        {
+          "name": "control_net",
+          "type": "CONTROL_NET",
+          "link": 139
+        },
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 140
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 142,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "links": [
+            141
+          ]
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "ControlNetApplyAdvanced"
+      },
+      "widgets_values": [
+        0.85,
+        0.0,
+        0.9
+      ]
+    },
+    {
+      "id": 59,
+      "type": "DepthAnythingV2Preprocessor",
+      "pos": [
+        1350,
+        -460
+      ],
+      "size": [
+        200,
+        82
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "Image2 → 深度マップ（形だけを抽出）",
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 144
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            140,
+            143
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui_controlnet_aux",
+        "aux_id": "Fannovel16/comfyui_controlnet_aux",
+        "Node name for S&R": "DepthAnythingV2Preprocessor"
+      },
+      "widgets_values": [
+        "depth_anything_v2_vitl.pth",
+        1024
+      ]
+    },
+    {
+      "id": 58,
+      "type": "PreviewImage",
+      "pos": [
+        1600,
+        -460
+      ],
+      "size": [
+        200,
+        270
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "モデルに渡る Image2 の情報（これが全て）",
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 143
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 57,
+      "type": "MarkdownNote",
+      "pos": [
+        2250,
+        -1130
+      ],
+      "size": [
+        640,
+        1300
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "使い方 — 画風は Image1、形だけ Image2",
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "## 考え方\n**Image2 の画素はモデルに一切渡らない。**\n深度マップに変換してから ControlNet に入れるので、モデルが Image2 から\n受け取れるのは立体的な形だけ。色も筆致も写真的な質感も含まれない。\n\nプロンプトで Image2 の画風を打ち消そうとしても効かないのは、\n参照ラテントがフルカラーの画素をそのまま渡していたから。\n見えているものは言葉では消せない。だから経路ごと断つ。\n\n| 何を | どこから | 割合 |\n|---|---|---|\n| 画風・色・雰囲気 | 「Image1 — 画風・色・雰囲気」 | 100% |\n| 形 | 「Image2 — 形だけを使う」 | 100% |\n\n```\nImage1 → 画風として読み取る → 画風の強さ（Redux）┐\n                                                 ├→ 形の適用（ControlNet）→ サンプラー\nImage2 → 解像度を自動決定 → 深度マップ ──────────┘\n                                └→ モデルに渡る Image2 の情報\n```\n\n## 手順\n1. 「Image1 — 画風・色・雰囲気」に画風の元を読み込む\n2. 「Image2 — 形だけを使う」に形の元を読み込む\n3. 実行\n\n解像度の設定は不要。Image2 の縦横比から自動で決まる。\n\n## 必ず確認すること\n「モデルに渡る Image2 の情報（これが全て）」を見る。\n**グレーの立体図が出ていれば正常。** ここに色が付いていたら\n深度前処理が効いていない。\n\n## 調整箇所\n| 症状 | 変更するノード | 変更内容 |\n|---|---|---|\n| 形が Image2 に従わない | 「形の適用（ControlNet）」 | strength 0.85 → 1.00 |\n| 形が効きすぎて画風が乗らない | 同上 | strength 0.85 → 0.65 |\n| 顔つきが硬い・のっぺりする | 同上 | end_percent 0.90 → 0.70 |\n| 画風が乗らない | 「画風の強さ（Redux）」 | strength 1.0 → 1.3 |\n| 仕上がりが硬い・AI っぽい | 「FluxGuidance ◀ 絵の磨き具合」 | 2.5 → 1.8 |\n\nプロンプトには**画材だけ**を書く。人物の描写を書くと、\nそちらに引っ張られて ControlNet の形と喧嘩する。\n\n## 深度ではなく線で形を渡したいとき\n「Image2 → 深度マップ（形だけを抽出）」を ComfyUI 標準の `Canny` に\n差し替える。`comfyui_controlnet_aux` が不要になる代わりに、\n顔の立体（鼻の高さ・頬骨・顎）は伝わりにくくなる。\n線画から起こす場合は `Canny` のほうが向く。\n\n## この方式の限界\n**Image2 の画風が混ざらないことは構造的に保証されるが、**\n**顔の似方は Best Face Swap LoRA より弱い。**\n深度マップは鼻の高さ・顎の輪郭・頬骨は伝えるが、細かい造作までは\n伝えない。似顔絵としての精度を優先するなら LoRA 版、\n画風の純度を優先するならこちら。\n\n## 必要なもの\n| 種類 | ファイル | 置き場所 |\n|---|---|---|\n| diffusion model | flux1-dev-fp8.safetensors | `models/diffusion_models/` |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l | `models/text_encoders/` |\n| VAE | ae.safetensors | `models/vae/` |\n| style model | flux1-redux-dev.safetensors | `models/style_models/` |\n| clip vision | sigclip_vision_patch14_384.safetensors | `models/clip_vision/` |\n| ControlNet | FLUX.1-dev-Controlnet-Union-Pro-2.0 | `models/controlnet/` |\n\nカスタムノードは `comfyui_controlnet_aux` の 1 つだけ（深度前処理用）。\nKrea2 版で既に使っているものと同じ。"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 60,
+      "type": "GetImageSize",
+      "pos": [
+        1350,
+        -300
+      ],
+      "size": [
+        200,
+        100
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "決まった解像度を取得",
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 145
+        }
+      ],
+      "outputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "links": [
+            146,
+            148
+          ]
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": [
+            147,
+            149
+          ]
+        },
+        {
+          "name": "batch_size",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "GetImageSize"
+      },
+      "widgets_values": []
+    }
+  ],
+  "links": [
+    [
+      9,
+      8,
+      0,
+      9,
+      0,
+      "IMAGE"
+    ],
+    [
+      10,
+      11,
+      0,
+      6,
+      0,
+      "CLIP"
+    ],
+    [
+      12,
+      10,
+      0,
+      8,
+      1,
+      "VAE"
+    ],
+    [
+      19,
+      16,
+      0,
+      13,
+      2,
+      "SAMPLER"
+    ],
+    [
+      20,
+      17,
+      0,
+      13,
+      3,
+      "SIGMAS"
+    ],
+    [
+      24,
+      13,
+      0,
+      8,
+      0,
+      "LATENT"
+    ],
+    [
+      30,
+      22,
+      0,
+      13,
+      1,
+      "GUIDER"
+    ],
+    [
+      37,
+      25,
+      0,
+      13,
+      0,
+      "NOISE"
+    ],
+    [
+      41,
+      6,
+      0,
+      26,
+      0,
+      "CONDITIONING"
+    ],
+    [
+      54,
+      30,
+      0,
+      22,
+      0,
+      "MODEL"
+    ],
+    [
+      55,
+      30,
+      0,
+      17,
+      0,
+      "MODEL"
+    ],
+    [
+      56,
+      12,
+      0,
+      30,
+      0,
+      "MODEL"
+    ],
+    [
+      116,
+      27,
+      0,
+      13,
+      4,
+      "LATENT"
+    ],
+    [
+      117,
+      38,
+      0,
+      39,
+      0,
+      "CLIP_VISION"
+    ],
+    [
+      118,
+      40,
+      0,
+      39,
+      1,
+      "IMAGE"
+    ],
+    [
+      119,
+      42,
+      0,
+      41,
+      1,
+      "STYLE_MODEL"
+    ],
+    [
+      120,
+      39,
+      0,
+      41,
+      2,
+      "CLIP_VISION_OUTPUT"
+    ],
+    [
+      122,
+      26,
+      0,
+      41,
+      0,
+      "CONDITIONING"
+    ],
+    [
+      132,
+      11,
+      0,
+      51,
+      0,
+      "CLIP"
+    ],
+    [
+      133,
+      52,
+      0,
+      53,
+      0,
+      "CONTROL_NET"
+    ],
+    [
+      134,
+      55,
+      0,
+      56,
+      0,
+      "IMAGE"
+    ],
+    [
+      137,
+      41,
+      0,
+      54,
+      0,
+      "CONDITIONING"
+    ],
+    [
+      138,
+      51,
+      0,
+      54,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      139,
+      53,
+      0,
+      54,
+      2,
+      "CONTROL_NET"
+    ],
+    [
+      140,
+      59,
+      0,
+      54,
+      3,
+      "IMAGE"
+    ],
+    [
+      141,
+      54,
+      0,
+      22,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      142,
+      10,
+      0,
+      54,
+      4,
+      "VAE"
+    ],
+    [
+      143,
+      59,
+      0,
+      58,
+      0,
+      "IMAGE"
+    ],
+    [
+      144,
+      56,
+      0,
+      59,
+      0,
+      "IMAGE"
+    ],
+    [
+      145,
+      56,
+      0,
+      60,
+      0,
+      "IMAGE"
+    ],
+    [
+      146,
+      60,
+      0,
+      27,
+      0,
+      "INT"
+    ],
+    [
+      147,
+      60,
+      1,
+      27,
+      1,
+      "INT"
+    ],
+    [
+      148,
+      60,
+      0,
+      30,
+      1,
+      "INT"
+    ],
+    [
+      149,
+      60,
+      1,
+      30,
+      2,
+      "INT"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Step3 - Reference image 1",
+      "bounding": [
+        680,
+        -1000,
+        870,
+        420
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "Custom sampler",
+      "bounding": [
+        680,
+        -80,
+        880,
+        600
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "Step1 - Load models",
+      "bounding": [
+        -160,
+        -510,
+        350,
+        680
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "Image size",
+      "bounding": [
+        -160,
+        190,
+        550,
+        310
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 6,
+      "title": "Step2 - Prompt",
+      "bounding": [
+        210,
+        -80,
+        442.8499755859375,
+        247.91000366210938
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 7,
+      "title": "Reference image 2",
+      "bounding": [
+        680,
+        -560,
+        870,
+        440
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.37170761877880654,
+      "offset": [
+        1907.9859218107877,
+        1289.6644766538927
+      ]
+    },
+    "frontendVersion": "1.27.10",
+    "groupNodes": {},
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4
+}

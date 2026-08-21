@@ -9,6 +9,7 @@
 | `Flux1_FaceSwap_StyleFromImage1.json` | FLUX.1-dev 版。**Image1 の画風のまま顔だけ Image2 に差し替える**。8GB VRAM 向け |
 | `Flux1_Repaint_Image2_in_Image1Style.json` | FLUX.1-dev 版。**Image1 の画風で Image2 を丸ごと描き直す**。位置合わせ不要。8GB VRAM 向け |
 | `Flux2Klein_FaceSwap_StyleFromImage1.json` | FLUX.2 Klein 9B + Best Face Swap LoRA。**顔は Image2、画風は Image1**。マスク不要 |
+| `Flux1_ShapeOnly_FaceFromImage2.json` | FLUX.1-dev 版。**Image2 からは形だけ**を取り、画風は Image1。画風の混入なし。8GB VRAM 向け |
 | `Flux2_StyleRef_x_ControlNet.json` | FLUX.2-dev 版。同じ構成だが **VRAM 16GB 以上が必要** |
 | `Krea2_StyleRef_x_Structure.json` | Krea2 版。depth ControlNet と img2img を切り替えられる統合版 |
 | `Krea2_StyleRef_x_DepthControlNet.json` | Krea2 版。depth ControlNet のみの初版 |
@@ -20,6 +21,7 @@
 - [Face Swap 版](#face-swap-版)
 - [Image1 の画風で Image2 を描き直す版](#image1-の画風で-image2-を描き直す版)
 - [Klein Face Swap 版](#klein-face-swap-版)
+- [形だけを渡す版](#形だけを渡す版)
 - [Krea2 版](#krea2-版)
 
 このドキュメントでは、ノードを**キャンバス上のタイトル**（例:「Image1 — 画風の参照」）で
@@ -774,3 +776,83 @@ Do not copy the photographic lighting, skin texture, make-up or colors of Pictur
 
 2 段目は 1 段目と同じモデルを使い回すので追加のダウンロードは無い。
 生成時間はおよそ 1.35 倍（2 段目は `denoise` `0.35` ぶんの step 数）。
+
+---
+
+## 形だけを渡す版
+
+`Flux1_ShapeOnly_FaceFromImage2.json`
+
+**Image2 の画素をモデルに一切渡さない。** 深度マップに変換してから ControlNet に
+入れるので、モデルが Image2 から受け取れるのは立体的な形だけになる。
+
+| 何を | どこから | 割合 |
+|---|---|---|
+| 画風・色・雰囲気 | 「Image1 — 画風・色・雰囲気」 | 100% |
+| 形 | 「Image2 — 形だけを使う」 | 100% |
+
+```
+Image1 → 画風として読み取る → 画風の強さ（Redux）┐
+                                                 ├→ 形の適用（ControlNet）→ サンプラー
+Image2 → 解像度を自動決定 → 深度マップ ──────────┘
+                                └→ モデルに渡る Image2 の情報
+```
+
+### なぜプロンプトでは駄目だったのか
+
+参照ラテント（`ReferenceLatent`）や Redux は、**フルカラーの画素をそのまま**
+モデルに渡す。色も筆致も写真的な質感もモデルには「見えて」いる。
+見えているものを言葉で無かったことにはできない。
+
+`no face paint`, `do not copy the colors of Picture 2` といった否定形を
+いくら重ねても、参照画像の見た目は残り続ける。**経路ごと断つしかない。**
+
+深度マップはグレースケールの立体情報だけで、色も筆致も含まない。
+Image2 の画風が混ざらないことが**構造的に保証される**。
+
+### 手順
+
+1. 「Image1 — 画風・色・雰囲気」に画風の元を読み込む
+2. 「Image2 — 形だけを使う」に形の元を読み込む
+3. 実行
+
+解像度の設定は不要。Image2 の縦横比から自動で決まる。
+
+### 必ず確認すること
+
+「モデルに渡る Image2 の情報（これが全て）」を見る。**グレーの立体図が
+出ていれば正常。** ここに色が付いていたら深度前処理が効いていない。
+
+### 調整箇所
+
+| 症状 | 変更するノード | 変更内容 |
+|---|---|---|
+| 形が Image2 に従わない | 「形の適用（ControlNet）」 | `strength` `0.85` → `1.00` |
+| 形が効きすぎて画風が乗らない | 同上 | `strength` `0.85` → `0.65` |
+| 顔つきが硬い・のっぺりする | 同上 | `end_percent` `0.90` → `0.70` |
+| 画風が乗らない | 「画風の強さ（Redux）」 | `strength` `1.0` → `1.3` |
+| 仕上がりが硬い・AI っぽい | 「FluxGuidance ◀ 絵の磨き具合」 | `2.5` → `1.8` |
+
+プロンプトには**画材だけ**を書く。人物の描写を書くと、そちらに引っ張られて
+ControlNet の形と喧嘩する。
+
+### 深度ではなく線で形を渡したいとき
+
+「Image2 → 深度マップ（形だけを抽出）」を ComfyUI 標準の `Canny` に差し替える。
+`comfyui_controlnet_aux` が不要になる代わりに、顔の立体（鼻の高さ・頬骨・顎）は
+伝わりにくくなる。線画から起こす場合は `Canny` のほうが向く。
+
+### この方式の限界
+
+**Image2 の画風が混ざらないことは構造的に保証されるが、顔の似方は
+Best Face Swap LoRA より弱い。** 深度マップは鼻の高さ・顎の輪郭・頬骨は
+伝えるが、細かい造作までは伝えない。
+
+- 似顔絵としての精度を優先する → `Flux2Klein_FaceSwap_StyleFromImage1.json`
+- 画風の純度を優先する → こちら
+
+### 必要なもの
+
+`Flux1_StyleRef_x_ControlNet.json` と同じ。加えて深度前処理に
+[`comfyui_controlnet_aux`](https://github.com/Fannovel16/comfyui_controlnet_aux)
+が要る（Krea2 版で既に使っているものと同じ）。
