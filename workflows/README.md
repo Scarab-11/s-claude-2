@@ -8,6 +8,7 @@
 | `Flux1_StyleBlend_TwoImages.json` | FLUX.1-dev 版。**2枚の画風を融合**させる（構図制御なし）。8GB VRAM 向け |
 | `Flux1_FaceSwap_StyleFromImage1.json` | FLUX.1-dev 版。**Image1 の画風のまま顔だけ Image2 に差し替える**。8GB VRAM 向け |
 | `Flux1_Repaint_Image2_in_Image1Style.json` | FLUX.1-dev 版。**Image1 の画風で Image2 を丸ごと描き直す**。位置合わせ不要。8GB VRAM 向け |
+| `Flux2Klein_FaceSwap_StyleFromImage1.json` | FLUX.2 Klein 9B + Best Face Swap LoRA。**顔は Image2、画風は Image1**。マスク不要 |
 | `Flux2_StyleRef_x_ControlNet.json` | FLUX.2-dev 版。同じ構成だが **VRAM 16GB 以上が必要** |
 | `Krea2_StyleRef_x_Structure.json` | Krea2 版。depth ControlNet と img2img を切り替えられる統合版 |
 | `Krea2_StyleRef_x_DepthControlNet.json` | Krea2 版。depth ControlNet のみの初版 |
@@ -18,6 +19,7 @@
 - [2枚の画風を融合する版](#2枚の画風を融合する版)
 - [Face Swap 版](#face-swap-版)
 - [Image1 の画風で Image2 を描き直す版](#image1-の画風で-image2-を描き直す版)
+- [Klein Face Swap 版](#klein-face-swap-版)
 - [Krea2 版](#krea2-版)
 
 このドキュメントでは、ノードを**キャンバス上のタイトル**（例:「Image1 — 画風の参照」）で
@@ -685,3 +687,90 @@ Image2 の縦横比が候補とぴったり一致しない場合だけ、中央�
 ### 必要なもの
 
 `Flux1_StyleBlend_TwoImages.json` と同じ。**カスタムノードも ControlNet も不要。**
+
+---
+
+## Klein Face Swap 版
+
+`Flux2Klein_FaceSwap_StyleFromImage1.json`
+
+FLUX.2 Klein 9B + [Best Face Swap LoRA] による頭部差し替えに、
+**画風を Image1 に揃える 2 段目**を足したもの。ベースは利用者提供のワークフロー。
+
+| 入力 | ノード | 決めるもの |
+|---|---|---|
+| **Image1** | 「Image1 — 画風＆背景（Picture 1）」 | 画風・色調・背景・体・表情 |
+| **Image2** | 「Image2 — 顔（Picture 2）」 | 顔立ち |
+
+**マスクも位置合わせも不要。** 2 枚を参照ラテントとしてモデルに渡し、
+LoRA とプロンプトで頭部を入れ替える方式。
+
+### 2 段構え
+
+| | やること | 出力 |
+|---|---|---|
+| **1段目** | Best Face Swap LoRA で頭部を差し替える | 「1段目の出力（顔だけ入れ替えた状態）」 |
+| **2段目** | Image1 を参照に画風だけを揃える | 「最終出力（画風を揃えたあと）」 |
+
+元のワークフローは頭部の差し替えには成功するが、**Picture 2 の写真的な質感・
+化粧・色まで持ち込んでしまう**。2 段目でそれを直す。
+
+2 段目は 1 段目の出力を `VAEEncode` し直し、**Image1 だけを参照ラテントとして**
+低い `denoise` で描き直す。画風は構成上必ず揃う。
+`Flux2Scheduler` には `denoise` が無いので、`SplitSigmasDenoise` で sigmas の
+後ろ側（`low_sigmas`）だけを取り出して部分デノイズにしている。
+
+### 触るのはここだけ
+
+「denoise ◀ 2段目でどれだけ描き直すか」
+
+| `denoise` | 結果 |
+|---|---|
+| `0.20` | ほぼ 1 段目のまま。色味が少し寄る程度 |
+| `0.35` | 既定値。画風が揃い、顔立ちは保たれる |
+| `0.50` | しっかり塗り直される。顔立ちが少し動く |
+| `0.70` | 別人になり始める |
+
+**画風が揃わないなら上げる。顔が変わるなら下げる。**
+
+### 1 段目のプロンプト
+
+`head_swap:` は **LoRA のトリガーワード**。この 1 語と「Picture 1 / Picture 2」
+という呼び方は学習時の文言なので**変えてはいけない**。言い換えると LoRA が効かない。
+
+その形を保ったまま、末尾に画風の指示を足してある。
+
+```
+Render the new head in the exact same medium and painting style as Picture 1:
+same brush work, same color palette, same paper texture, same level of detail.
+Do not copy the photographic lighting, skin texture, make-up or colors of Picture 2.
+```
+
+### 2 段目を止めたいとき
+
+「画風統一（2段目）」グループのタイトルバーを右クリック → **Bypass Group Nodes**。
+元のワークフローと同じ挙動に戻る。
+
+### 調整箇所
+
+| 症状 | 対処 |
+|---|---|
+| 画風が揃わない | `denoise` `0.35` → `0.50` |
+| 顔が別人になる | `denoise` `0.35` → `0.25` |
+| 顔交換自体が起きない | 1 段目のプロンプトが `head_swap:` で始まっているか確認 |
+| 2 段目で写真っぽさが戻る | 「2段目のガイダンス」の `model` を「拡散モデルの読み込み」に直結する |
+
+2 段目のモデルは 1 段目と同じ（LoRA 適用済み）を使っている。モデルの入れ替えが
+起きないぶん速いが、LoRA が Picture 2 の見た目を呼び戻す場合は直結に変える。
+
+### 必要なもの
+
+| 種類 | ファイル |
+|---|---|
+| diffusion model | `flux-2-klein-9b-fp8.safetensors` |
+| text encoder | `qwen_3_8b_fp8mixed.safetensors` |
+| VAE | `flux2-vae.safetensors` |
+| LoRA | `bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors` |
+
+2 段目は 1 段目と同じモデルを使い回すので追加のダウンロードは無い。
+生成時間はおよそ 1.35 倍（2 段目は `denoise` `0.35` ぶんの step 数）。
