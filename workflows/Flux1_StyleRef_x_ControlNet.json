@@ -34,7 +34,7 @@
           ]
         }
       ],
-      "title": "width",
+      "title": "width（生成幅）",
       "properties": {
         "Run widget replace on values": false
       },
@@ -135,7 +135,8 @@
         "simple",
         24,
         1.0
-      ]
+      ],
+      "title": "steps と denoise"
     },
     {
       "id": 41,
@@ -187,7 +188,7 @@
         0.6,
         "multiply"
       ],
-      "title": "StyleModelApply — Redux（画風）"
+      "title": "画風の強さ（Redux）"
     },
     {
       "id": 12,
@@ -321,7 +322,8 @@
       },
       "widgets_values": [
         "ae.safetensors"
-      ]
+      ],
+      "title": "VAE の読み込み"
     },
     {
       "id": 42,
@@ -445,7 +447,8 @@
         "ver": "0.3.44",
         "Node name for S&R": "VAEDecode"
       },
-      "widgets_values": []
+      "widgets_values": [],
+      "title": "latent → 画像"
     },
     {
       "id": 48,
@@ -513,7 +516,8 @@
       },
       "widgets_values": [
         "center"
-      ]
+      ],
+      "title": "Image1 を画風として読み取る"
     },
     {
       "id": 13,
@@ -576,7 +580,8 @@
         "ver": "0.3.44",
         "Node name for S&R": "SamplerCustomAdvanced"
       },
-      "widgets_values": []
+      "widgets_values": [],
+      "title": "サンプラー"
     },
     {
       "id": 16,
@@ -803,7 +808,7 @@
           ]
         }
       ],
-      "title": "height",
+      "title": "height（生成高さ）",
       "properties": {
         "Run widget replace on values": false
       },
@@ -883,7 +888,7 @@
           ]
         }
       ],
-      "title": "CLIP Text Encode (Positive Prompt)",
+      "title": "プロンプト",
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.3.44",
@@ -923,7 +928,8 @@
       },
       "widgets_values": [
         "Flux1_StyleRef_CN"
-      ]
+      ],
+      "title": "最終出力"
     },
     {
       "id": 40,
@@ -979,7 +985,7 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "CLIP Text Encode (Negative — 空でよい)",
+      "title": "ネガティブプロンプト（空でよい）",
       "inputs": [
         {
           "name": "clip",
@@ -1038,7 +1044,8 @@
       },
       "widgets_values": [
         "FLUX.1-dev-Controlnet-Union-Pro-2.0.safetensors"
-      ]
+      ],
+      "title": "ControlNet モデルの読み込み"
     },
     {
       "id": 53,
@@ -1054,7 +1061,7 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "Union の制御タイプ（auto でよい）",
+      "title": "Union の制御タイプ",
       "inputs": [
         {
           "name": "control_net",
@@ -1094,7 +1101,7 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "Image2 — 形・構図（線画 / canny / depth / pose）",
+      "title": "Image2 — 形・構図",
       "inputs": [],
       "outputs": [
         {
@@ -1193,7 +1200,7 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "ControlNet Apply（形・構図）",
+      "title": "構図の適用（ControlNet）",
       "inputs": [
         {
           "name": "positive",
@@ -1323,22 +1330,22 @@
       "id": 57,
       "type": "MarkdownNote",
       "pos": [
-        1500,
+        2250,
         -1130
       ],
       "size": [
-        620,
-        620
+        640,
+        1300
       ],
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "使い方",
+      "title": "使い方 — 画風 × 構図",
       "inputs": [],
       "outputs": [],
       "properties": {},
       "widgets_values": [
-        "## 役割分担\n- **Image1 (#40)** = 画風。Redux (CLIPVision → StyleModelApply #41)。\n- **Image2 (#55)** = 形・構図。ControlNet Union (#54)。\n\n## #53 制御タイプの手動指定\n#53 のドロップダウンで選ぶ。指定できる文字列は ComfyUI 本体の\n`comfy/cldm/control_types.py` に定義された 8 種類＋ `auto`。\n\n| 入れる画像 | #53 で選ぶ値 |\n|---|---|\n| 線画 / canny / MLSD | `canny/lineart/anime_lineart/mlsd` |\n| ラフ線 / scribble / HED / PiDi | `hed/pidi/scribble/ted` |\n| 深度マップ | `depth` |\n| ポーズ（棒人間） | `openpose` |\n| 法線マップ | `normal` |\n| セグメンテーション | `segment` |\n| タイル（拡大用） | `tile` |\n| 部分描き直し | `repaint` |\n\n**注意**: Union Pro **2.0** は mode embedding を持たないため、\nここで型を指定しても ControlNetFlux 側で無視される\n(`controlnet_mode_embedder is None` → 分岐に入らない)。\n型指定を実際に効かせたいなら Union Pro **1.0** を #52 で読み込む。\n2.0 のままなら `auto` でも手動でも結果は同じ。\n\n## 前処理 (#59) とプレビュー (#58)\n**#53 は画像を加工しない。** どの mode embedding を使うかを ControlNet に\n伝えるだけなので、`canny` を選んでも写真は写真のまま渡る。\n線を取り出すには前処理ノードが要る → `Canny` #59 を挟んである。\n\n#58 には #59 の出力（＝ #54 に渡るのと同じ画像）が出る。\n\n| Image2 の中身 | #59 の扱い |\n|---|---|\n| 写真・イラスト | そのまま有効。線が出る |\n| 最初から線画 | #59 を選んで **Ctrl+B** でバイパス（素通し） |\n\n線が少なすぎる → #59 `low_threshold` を下げる (0.2 → 0.1)\n線が多すぎる／ノイズ → `high_threshold` を上げる (0.5 → 0.8)\n\ndepth / openpose は ComfyUI 標準に前処理ノードが無い。\n`comfyui_controlnet_aux` を入れて #59 を差し替える。\n\n## 必要なファイル\n| 種類 | ファイル | 置き場所 |\n|---|---|---|\n| diffusion model | flux1-dev-fp8.safetensors | `models/diffusion_models/` |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l | `models/text_encoders/` |\n| VAE | ae.safetensors | `models/vae/` |\n| style model | flux1-redux-dev.safetensors | `models/style_models/` |\n| clip vision | sigclip_vision_patch14_384.safetensors | `models/clip_vision/` |\n| ControlNet | FLUX.1-dev-Controlnet-Union-Pro-2.0 | `models/controlnet/` |\n\nカスタムノード不要（すべて ComfyUI 標準ノード）。\n\n## 調整箇所\n| 症状 | 変更 |\n|---|---|\n| 構図が Image2 に従わない | #54 strength 0.75 → 0.90 / end_percent 0.85 → 1.00 |\n| 線画の線が出力に残る | #54 end_percent 0.85 → 0.60 |\n| 画風が乗らない | #41 strength 0.6 → 0.9 |\n| 画風が強すぎてプロンプトが効かない | #41 strength 0.6 → 0.3 |\n\n解像度は #34 (width) / #35 (height) の 2 箇所だけ変えれば\nlatent・ModelSamplingFlux・Image2 リサイズの 3 つに伝わる。\n\nVRAM 8GB なら 832×1216 程度まで。足りなければ GGUF (Q4_K_M) に\n差し替える（#12 を `Unet Loader (GGUF)` に置換）。"
+        "## 役割分担\n| 入力 | ノード | 決めるもの |\n|---|---|---|\n| **Image1** | 「Image1 — 画風の参照」 | 画風・色調・タッチ |\n| **Image2** | 「Image2 — 形・構図」 | 形・構図 |\n\n```\nImage1 → 画風として読み取る → 画風の強さ（Redux）┐\n                                                 ├→ 構図の適用（ControlNet）→ サンプラー\nImage2 → 生成解像度に合わせる → Canny 前処理 ────┘\n                                        └→ ControlNet に渡る実際の画像\n```\n\n## 「Union の制御タイプ」は画像を加工しない\nこのノードがやるのは、どの mode embedding を使うかを ControlNet に\n伝えることだけ。`canny` や `lineart` を選んでも、**写真は写真のまま**\nControlNet に渡る。線を取り出すには前処理が要るので、\n「Canny 前処理（線を抽出）」を間に入れてある。\n\nさらに **Union Pro 2.0 では型指定そのものが無視される。**\n2.0 は mode embedding を持たないため、`auto` でも手動指定でも結果は同じ。\n型指定を効かせたい場合は「ControlNet モデルの読み込み」で\nUnion Pro **1.0** を読み込む。\n\n## 「Canny 前処理（線を抽出）」の使い分け\n| Image2 の中身 | 扱い |\n|---|---|\n| 写真・イラスト | そのまま有効。線が抽出される |\n| 最初から線画 | このノードを選んで **Ctrl+B** でバイパス（素通し） |\n\n「ControlNet に渡る実際の画像」に、ControlNet が受け取るのと同じ画像が出る。\n実行後にここを見れば、線が取れているか、構図が切れていないかが分かる。\nこの表示は「Union の制御タイプ」の値には影響されない。\n\n## 調整箇所\n| 症状 | 変更するノード | 変更内容 |\n|---|---|---|\n| 構図が Image2 に従わない | 「構図の適用（ControlNet）」 | strength 0.75 → 0.90 |\n| 線画の線が出力に残る | 同上 | end_percent 0.85 → 0.60 |\n| 画風が乗らない | 「画風の強さ（Redux）」 | strength 0.6 → 0.9 |\n| 画風が強すぎる | 同上 | strength 0.6 → 0.3 |\n| 線が少なすぎる | 「Canny 前処理（線を抽出）」 | low_threshold 0.2 → 0.1 |\n| 線が多すぎる・ノイズだらけ | 同上 | high_threshold 0.5 → 0.8 |\n\n実際に良い結果が出た組み合わせ: 画風 0.9 / 構図 0.90 / end_percent 0.85。\n\n## 解像度\n「width（生成幅）」「height（生成高さ）」の 2 つだけ変えれば、\nlatent・ModelSamplingFlux・Image2 のリサイズの 3 つに伝わる。\n8GB なら 832x1216 程度まで。\n\n## 配線の注意\n「構図の適用（ControlNet）」の `negative` には\n「ネガティブプロンプト（空でよい）」を、\n`vae` には「VAE の読み込み」を繋いである。\nUnion Pro 2.0 は latent 空間で hint を作るため VAE が必須で、\n未接続だと `This Controlnet needs a VAE but none was provided` で落ちる。\n\n## 必要なファイル\n| 種類 | ファイル | 置き場所 |\n|---|---|---|\n| diffusion model | flux1-dev-fp8.safetensors | `models/diffusion_models/` |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l | `models/text_encoders/` |\n| VAE | ae.safetensors | `models/vae/` |\n| style model | flux1-redux-dev.safetensors | `models/style_models/` |\n| clip vision | sigclip_vision_patch14_384.safetensors | `models/clip_vision/` |\n| ControlNet | FLUX.1-dev-Controlnet-Union-Pro-2.0 | `models/controlnet/` |\n\nカスタムノード不要（すべて ComfyUI 標準ノード）。\n\ndepth や openpose の前処理ノードは標準には無い。必要なら\n`comfyui_controlnet_aux` を入れて「Canny 前処理（線を抽出）」を差し替える。"
       ],
       "color": "#432",
       "bgcolor": "#653"

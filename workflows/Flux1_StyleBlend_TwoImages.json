@@ -34,7 +34,7 @@
           ]
         }
       ],
-      "title": "width",
+      "title": "width（生成幅）",
       "properties": {
         "Run widget replace on values": false
       },
@@ -83,7 +83,7 @@
         24,
         0.6
       ],
-      "title": "denoise ◀ 顔をどれだけ残すか"
+      "title": "denoise ◀ 元の2枚をどれだけ残すか"
     },
     {
       "id": 41,
@@ -135,7 +135,7 @@
         0.6,
         "multiply"
       ],
-      "title": "画風A の強さ ◀ 混合比はここ"
+      "title": "画風A の強さ"
     },
     {
       "id": 45,
@@ -187,7 +187,7 @@
         0.6,
         "multiply"
       ],
-      "title": "画風B の強さ ◀ 混合比はここ"
+      "title": "画風B の強さ"
     },
     {
       "id": 12,
@@ -446,7 +446,8 @@
         "ver": "0.3.44",
         "Node name for S&R": "VAEDecode"
       },
-      "widgets_values": []
+      "widgets_values": [],
+      "title": "latent → 画像"
     },
     {
       "id": 48,
@@ -515,7 +516,7 @@
       "widgets_values": [
         "none"
       ],
-      "title": "CLIP Vision Encode — 画風B"
+      "title": "Image2 を画風として読み取る"
     },
     {
       "id": 39,
@@ -561,7 +562,7 @@
       "widgets_values": [
         "none"
       ],
-      "title": "CLIP Vision Encode — 画風A"
+      "title": "Image1 を画風として読み取る"
     },
     {
       "id": 43,
@@ -647,7 +648,8 @@
         "ver": "0.3.44",
         "Node name for S&R": "SamplerCustomAdvanced"
       },
-      "widgets_values": []
+      "widgets_values": [],
+      "title": "サンプラー"
     },
     {
       "id": 16,
@@ -898,7 +900,7 @@
           ]
         }
       ],
-      "title": "height",
+      "title": "height（生成高さ）",
       "properties": {
         "Run widget replace on values": false
       },
@@ -945,7 +947,8 @@
       },
       "widgets_values": [
         3.5
-      ]
+      ],
+      "title": "FluxGuidance ◀ 絵の磨き具合"
     },
     {
       "id": 50,
@@ -1002,7 +1005,7 @@
           ]
         }
       ],
-      "title": "CLIP Text Encode (Positive Prompt)",
+      "title": "プロンプト（画材を書く）",
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.3.44",
@@ -1042,7 +1045,8 @@
       },
       "widgets_values": [
         "Flux1_StyleBlend"
-      ]
+      ],
+      "title": "最終出力"
     },
     {
       "id": 40,
@@ -1258,7 +1262,7 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "2枚を重ねる ◀ 顔の混合比はここ",
+      "title": "2枚を重ねる ◀ 顔の混合比",
       "inputs": [
         {
           "name": "image1",
@@ -1368,12 +1372,12 @@
       "id": 51,
       "type": "MarkdownNote",
       "pos": [
-        1590,
-        -1180
+        2200,
+        -1120
       ],
       "size": [
-        620,
-        780
+        660,
+        1500
       ],
       "flags": {},
       "order": 0,
@@ -1383,7 +1387,7 @@
       "outputs": [],
       "properties": {},
       "widgets_values": [
-        "## 2系統ある\n| 何を混ぜるか | どこで | 効くもの |\n|---|---|---|\n| **顔・構図** | `ImageBlend` #54 の `blend_factor` | ピクセルを実際に重ねる |\n| **画風・色** | `StyleModelApply` #41 / #45 の `strength` | Redux トークン |\n\n**Redux だけでは顔は保てない。** SigLIP が画像を 384x384 の\nトークンに潰すので同一性の情報が残らず、空 latent から始めると\n顔はゼロから生成される。そこで 2 枚を重ねた画像を latent の\n出発点に置き、`denoise` #17 でどれだけ残すかを決める。\n\n```\n顔:   Image1 → ImageScale #52 ┐\n                              ├ ImageBlend #54 → VAEEncode #55 → 出発点\n      Image2 → ImageScale #53 ┘                → PreviewImage #56\n\n画風: Image1 → CLIPVisionEncode #39 → StyleModelApply #41 ┐\n      Image2 → CLIPVisionEncode #46 → StyleModelApply #45 ┴→ BasicGuider\n```\n\n## denoise (#17) — ここが一番効く\n| 値 | 結果 |\n|---|---|\n| 0.40 | 元の 2 枚の面影が強く残る。重ねた跡も残りやすい |\n| 0.60 | 既定値。顔立ちは引き継ぎつつ絵として整う |\n| 0.80 | かなり描き変わる。構図だけ引き継ぐ |\n| 1.00 | アンカーが数式上消えて完全な txt2img。顔は別人になる |\n\n「全然違う顔になる」ときは **まず denoise を下げる**。\n`ImageBlend` #54 の `blend_factor` は 0.0 で A のみ、1.0 で B のみ、\n0.5 で等分。#56 に重ねた結果が出るので見ながら決める。\n\n## 画風の混合比の目安\n| したいこと | #41 (A) | #45 (B) |\n|---|---|---|\n| 等分に混ぜる | 0.6 | 0.6 |\n| A を主、B を隠し味 | 0.8 | 0.3 |\n| B を主、A を隠し味 | 0.3 | 0.8 |\n| 両方もっと強く | 0.9 | 0.9 |\n| プロンプトを効かせたい | 0.4 | 0.4 |\n\n`strength_type` は **multiply** のまま。Redux トークンを定数倍する\n(`nodes.py:1134` `cond *= strength`) ので比がそのまま効く。\n`attn_bias` は別系統で、混合比の調整には向かない。\n\n## うまくいかないとき\n| 症状 | 対処 |\n|---|---|\n| **顔が全然違う人になる** | **#17 denoise を 0.45 前後まで下げる** |\n| 片方の絵がそのまま出る | その側の strength を下げる (0.3 前後) |\n| どちらの画風も乗らない | 両方 0.9 に上げる |\n| プロンプトが完全に無視される | 両方 0.4 に下げる |\n| 混ざらず継ぎ接ぎになる | 2枚の明度・彩度を近づけてから入れる |\n\n片方だけの効果を確認したいときは、その `StyleModelApply` を選んで\n**Ctrl+B** でバイパスすると素通しになる。\n\n## crop 設定\n#39 / #46 の `crop` は **none** にしてある。`center` だと中央を\n正方形に切り取るため、画面端の色がトークンに入らない。\n色彩を混ぜる用途では none のほうが元画像の色を拾う。\n\n## 必要なファイル\n| 種類 | ファイル | 置き場所 |\n|---|---|---|\n| diffusion model | flux1-dev-fp8.safetensors | `models/diffusion_models/` |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l | `models/text_encoders/` |\n| VAE | ae.safetensors | `models/vae/` |\n| style model | flux1-redux-dev.safetensors | `models/style_models/` |\n| clip vision | sigclip_vision_patch14_384.safetensors | `models/clip_vision/` |\n\nカスタムノード不要（すべて ComfyUI 標準ノード）。\n\n顔の同一性そのものを保ちたい場合、標準ノードの範囲ではここが限界。\nPuLID-Flux / InstantID など顔埋め込みを使うノードパックが必要。"
+        "## 混ぜる系統が 2 つある\n| 何を混ぜるか | どのノード | 実体 |\n|---|---|---|\n| **顔・構図** | 「2枚を重ねる ◀ 顔の混合比」の `blend_factor` | 画素を実際に重ねる |\n| **画風・色** | 「画風A の強さ」「画風B の強さ」の `strength` | Redux トークン |\n\n## Redux だけでは顔は保てない\nRedux は画像を 384x384 のトークン列に潰すので、個人を特定する情報が\n落ちる。空の latent から始める text-to-image では画素側の手がかりも\n無いため、顔は毎回ゼロから生成される。\nそこで 2 枚を実際に重ねた画像を出発点に据え、\n「denoise ◀ 元の2枚をどれだけ残すか」でどれだけ残すかを決める。\n\n| denoise | 結果 |\n|---|---|\n| 0.30 | ほぼ重ねたまま。ズレだけが整理される |\n| 0.40 | 元の 2 枚の面影が強く残る |\n| 0.60 | 既定値。顔立ちを引き継ぎつつ絵として整う |\n| 0.80 | かなり描き変わる |\n| 1.00 | 出発点が消えて完全な text-to-image。顔は別人になる |\n\n**顔が全然違う人になるときは、まず denoise を下げる。**\n\n「2枚を重ねる ◀ 顔の混合比」の `blend_factor` は 0.0 で A のみ、\n1.0 で B のみ、0.5 で等分。重ねた結果は「重ねた結果（出発点）」に出る。\n\n## 出力が硬い・AI っぽいとき\n重ねた画像より最終出力のほうが悪く見えるのは、サンプラーが絵を\n描き直しているから。重なりの曖昧さは真っ先に潰される。\n\n| 変更するノード | 変更内容 |\n|---|---|\n| 「denoise ◀ 元の2枚をどれだけ残すか」 | 0.60 → 0.35 |\n| 「FluxGuidance ◀ 絵の磨き具合」 | 3.5 → 2.0〜2.5 |\n| 「プロンプト（画材を書く）」 | 人物ではなく画材と質感だけを書く |\n\nプロンプト例:\n`watercolor portrait on rough paper, loose wet-on-wet washes,`\n`visible paper texture, muted palette, unfinished edges, soft focus`\n\n人物の描写は書かない。顔と構図は「2枚を重ねる ◀ 顔の混合比」が\n担当しているので、プロンプトは画材と質感だけを指定する。\n\n## 画風の混合比の目安\n| したいこと | 「画風A の強さ」 | 「画風B の強さ」 |\n|---|---|---|\n| 等分に混ぜる（既定値） | 0.6 | 0.6 |\n| A を主、B を隠し味 | 0.8 | 0.3 |\n| B を主、A を隠し味 | 0.3 | 0.8 |\n| 両方もっと強く | 0.9 | 0.9 |\n| プロンプトを効かせたい | 0.4 | 0.4 |\n\n`strength_type` は **multiply** のまま。Redux トークンを定数倍するので\n比がそのまま効く。`attn_bias` は別系統で、混合比の調整には向かない。\n\n片方だけの効果を確認したいときは、その強さのノードを選んで\n**Ctrl+B** でバイパスすると素通しになる。\n\n## crop を none にしてある\n「Image1 を画風として読み取る」「Image2 を画風として読み取る」の `crop` は\n**none**。`center` だと中央を正方形に切り取るため画面端の色が入らない。\n色彩を混ぜる用途では none のほうが元画像の色を拾う。\n\n## 解像度\n「width（生成幅）」「height（生成高さ）」の 2 つだけ変えれば、\nサイズ合わせと ModelSamplingFlux の両方に伝わる。\n参照画像のアスペクト比に合わせるほうが結果が安定する。\n\n## 必要なファイル\n| 種類 | ファイル |\n|---|---|\n| diffusion model | flux1-dev-fp8.safetensors |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l |\n| VAE | ae.safetensors |\n| style model | flux1-redux-dev.safetensors |\n| clip vision | sigclip_vision_patch14_384.safetensors |\n\nカスタムノード不要。ControlNet も不要。\n構図を指定する経路が無いので、レイアウトはプロンプトと seed 任せになる。"
       ],
       "color": "#432",
       "bgcolor": "#653"

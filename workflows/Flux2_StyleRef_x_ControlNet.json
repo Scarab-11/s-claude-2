@@ -117,7 +117,8 @@
         "ver": "0.3.71",
         "Node name for S&R": "SamplerCustomAdvanced"
       },
-      "widgets_values": []
+      "widgets_values": [],
+      "title": "サンプラー"
     },
     {
       "id": 8,
@@ -160,7 +161,8 @@
         "ver": "0.3.71",
         "Node name for S&R": "VAEDecode"
       },
-      "widgets_values": []
+      "widgets_values": [],
+      "title": "latent → 画像"
     },
     {
       "id": 38,
@@ -310,7 +312,7 @@
           ]
         }
       ],
-      "title": "CLIP Text Encode (Positive Prompt)",
+      "title": "プロンプト",
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.3.71",
@@ -360,7 +362,7 @@
         "pose.jpg",
         "image"
       ],
-      "title": "Image2 — 形・構図（線画 / ポーズ / 深度 / canny など）"
+      "title": "Image2 — 形・構図"
     },
     {
       "id": 25,
@@ -437,7 +439,8 @@
         "ver": "0.3.71",
         "Node name for S&R": "BasicGuider"
       },
-      "widgets_values": []
+      "widgets_values": [],
+      "title": "ガイダンス"
     },
     {
       "id": 50,
@@ -468,7 +471,7 @@
           ]
         }
       ],
-      "title": "width",
+      "title": "width（生成幅）",
       "properties": {
         "Run widget replace on values": false
       },
@@ -508,7 +511,7 @@
           ]
         }
       ],
-      "title": "height",
+      "title": "height（生成高さ）",
       "properties": {
         "Run widget replace on values": false
       },
@@ -569,7 +572,8 @@
         30,
         992,
         1728
-      ]
+      ],
+      "title": "steps"
     },
     {
       "id": 9,
@@ -600,7 +604,8 @@
       },
       "widgets_values": [
         "Flux2_StyleRef_CN"
-      ]
+      ],
+      "title": "最終出力"
     },
     {
       "id": 26,
@@ -642,7 +647,8 @@
         4.0
       ],
       "color": "#233",
-      "bgcolor": "#355"
+      "bgcolor": "#355",
+      "title": "FluxGuidance ◀ 絵の磨き具合"
     },
     {
       "id": 10,
@@ -745,7 +751,7 @@
         1728,
         "center"
       ],
-      "title": "Image2 をリサイズ（生成解像度に合わせる）"
+      "title": "Image2 を生成解像度に合わせる"
     },
     {
       "id": 80,
@@ -775,7 +781,7 @@
         "Node name for S&R": "PreviewImage"
       },
       "widgets_values": [],
-      "title": "Image2 プレビュー（ControlNet に渡る実際の画像）"
+      "title": "ControlNet に渡る実際の画像"
     },
     {
       "id": 91,
@@ -843,7 +849,7 @@
       "widgets_values": [
         0.75
       ],
-      "title": "Apply Flux2 Fun ControlNet（形・構図）"
+      "title": "構図の適用（Flux2 Fun ControlNet）"
     },
     {
       "id": 92,
@@ -876,7 +882,8 @@
       },
       "widgets_values": [
         "FLUX.2-dev-Fun-Controlnet-Union.safetensors"
-      ]
+      ],
+      "title": "ControlNet モデルの読み込み"
     },
     {
       "id": 93,
@@ -933,7 +940,7 @@
       "flags": {},
       "order": 21,
       "mode": 0,
-      "title": "Image1 を約1MPに縮小（参照用）",
+      "title": "Image1 を約1MPに縮小",
       "inputs": [
         {
           "name": "image",
@@ -1017,7 +1024,7 @@
       "flags": {},
       "order": 23,
       "mode": 0,
-      "title": "ReferenceLatent（画風を conditioning に付与）",
+      "title": "画風を conditioning に付与（ReferenceLatent）",
       "inputs": [
         {
           "name": "conditioning",
@@ -1061,12 +1068,12 @@
       "flags": {},
       "order": 24,
       "mode": 0,
-      "title": "使い方",
+      "title": "使い方 — 画風 × 構図（FLUX.2）",
       "inputs": [],
       "outputs": [],
       "properties": {},
       "widgets_values": [
-        "## 役割分担\n- **Image1 (#93)** = 画風。ReferenceLatent 経由で conditioning に入る。\n- **Image2 (#70)** = 形・構図。Flux2 Fun ControlNet に入る。\n\nFun ControlNet Union は **pose / canny / depth / HED / MLSD / tile を自動判別**する。\n線画はそのまま `control_image` に入れてよい（前処理ノード不要）。\n\n## 必要なファイル\n| 種類 | ファイル | 置き場所 |\n|---|---|---|\n| diffusion model | flux2-dev (bf16 / fp8 / gguf) | `models/diffusion_models/` |\n| text encoder | mistral_3_small_flux2_*.safetensors | `models/text_encoders/` |\n| VAE | flux2-vae.safetensors | `models/vae/` |\n| ControlNet | FLUX.2-dev-Fun-Controlnet-Union.safetensors (8.3GB) | `models/controlnet/` |\n\nカスタムノード: `bryanmcguire/comfyui-flux2fun-controlnet`\n(ComfyUI Manager で `JLC Flux2 ControlNet` でも入る)\n\n## 調整箇所\n| 症状 | 変更 |\n|---|---|\n| 構図が Image2 に従わない | #91 strength 0.75 → 0.90 |\n| 線画の線がそのまま残る | #91 strength 0.75 → 0.60 |\n| 画風が乗らない | プロンプトの style 記述を具体化 / Image1 を差し替え |\n| 画風が強すぎて構図が崩れる | #91 strength を上げる |\n\n解像度は #50 (width) / #51 (height) の 2 箇所だけ変えれば\nlatent・scheduler・Image2 リサイズの 3 つに伝わる。\n\n推奨: steps 25〜50 (#48), FluxGuidance 3.5〜4.5 (#26), sampler euler。"
+        "## 役割分担\n| 入力 | ノード | 決めるもの |\n|---|---|---|\n| **Image1** | 「Image1 — 画風の参照」 | 画風・色調・タッチ |\n| **Image2** | 「Image2 — 形・構図」 | 形・構図 |\n\n```\nImage1 → 約1MPに縮小 → latent 化 → 画風を conditioning に付与 ┐\n                                                              ├→ 構図の適用 → ガイダンス\nImage2 → 生成解像度に合わせる ────────────────────────────────┘\n                        └→ ControlNet に渡る実際の画像\n```\n\n## ControlNet の対応種別\npose / canny / depth / HED / MLSD / tile を**自動判別**する。\n種別を切り替えるノードは無く、**線画はそのまま入れてよい**（前処理不要）。\n\n## 調整箇所\n| 症状 | 変更するノード | 変更内容 |\n|---|---|---|\n| 構図が Image2 に従わない | 「構図の適用（Flux2 Fun ControlNet）」 | strength 0.75 → 0.90 |\n| 線画の線が出力に残る | 同上 | strength 0.75 → 0.60 |\n| 画風が乗らない | 「プロンプト」 | style の記述を具体化する |\n\n解像度は「width（生成幅）」「height（生成高さ）」の 2 つだけ変えれば、\nlatent・scheduler・Image2 のリサイズの 3 つに伝わる。\n\n## VRAM 要件（重要）\n**8GB では動作しない。** 「ControlNet モデルの読み込み」が 8.3GB の\nチェックポイント全体を VRAM に常駐させ、ComfyUI の管理外なので\nオフロードされない。8GB カードはそれだけで埋まる。\nまた この ControlNet は **flux2-dev 専用**で、Klein 4B / 9B では使えない。\nテキストエンコーダも T5 ではなく Mistral 3 Small が必要。\n\n8GB 環境では `Flux1_StyleRef_x_ControlNet.json` を使うこと。\n\n## 必要なファイル\n| 種類 | ファイル | 置き場所 |\n|---|---|---|\n| diffusion model | flux2-dev（bf16 / fp8 / gguf） | `models/diffusion_models/` |\n| text encoder | mistral_3_small_flux2_*.safetensors | `models/text_encoders/` |\n| VAE | flux2-vae.safetensors | `models/vae/` |\n| ControlNet | FLUX.2-dev-Fun-Controlnet-Union（8.3GB） | `models/controlnet/` |\n\nカスタムノード: `bryanmcguire/comfyui-flux2fun-controlnet`\n\n## 既知の衝突\nこのノードパックは import 時に ComfyUI 本体の関数を無条件で差し替えるため、\n**入れているだけで FLUX.1 版のワークフローが落ちる。**\nFLUX.1 版を使うときは `custom_nodes` から外して ComfyUI を再起動する。"
       ],
       "color": "#432",
       "bgcolor": "#653"
