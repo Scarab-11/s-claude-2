@@ -7,13 +7,15 @@
 |---|---|
 | `Flux1_StyleRef_x_ControlNet.json` | **推奨。** FLUX.1-dev 版。Redux(画風) × ControlNet Union(構図)。8GB VRAM 向け |
 | `Flux1_StyleBlend_TwoImages.json` | FLUX.1-dev 版。**2枚の画風を融合**させる（構図制御なし）。8GB VRAM 向け |
+| `Flux1_FaceSwap_StyleFromImage1.json` | FLUX.1-dev 版。**Image1 の画風のまま顔だけ Image2 に差し替える**。8GB VRAM 向け |
 | `Flux2_StyleRef_x_ControlNet.json` | FLUX.2-dev 版。同じ構成だが **VRAM 16GB 以上が必要** |
 | `Krea2_StyleRef_x_Structure.json` | Krea2 版。depth ControlNet と img2img を切り替えられる統合版 |
 | `Krea2_StyleRef_x_DepthControlNet.json` | Krea2 版。depth ControlNet のみの初版 |
 | `Krea2_StyleRef_x_LineArtReference.json` | Krea2 版。線画を `image2` の参照画像として渡す試作 |
 
 FLUX 版については [FLUX.1 版](#flux1-版) / [FLUX.2 版](#flux2-版) /
-[2枚の画風を融合する版](#2枚の画風を融合する版) を参照。以下は Krea2 版の説明。
+[2枚の画風を融合する版](#2枚の画風を融合する版) /
+[Face Swap 版](#face-swap-版) を参照。以下は Krea2 版の説明。
 
 | 入力 | ノード | 決めるもの |
 |---|---|---|
@@ -434,3 +436,85 @@ cond *= strength
 
 顔の同一性そのものを保証したい場合、標準ノードの範囲ではここが限界になる。
 PuLID-Flux や InstantID のように顔埋め込みを別経路で注入するノードパックが必要。
+
+---
+
+## Face Swap 版
+
+`Flux1_FaceSwap_StyleFromImage1.json`
+
+**Image1 の画風・色彩・雰囲気をそのまま残し、顔だけ Image2 の形に差し替える。**
+
+| 入力 | ノード | 役割 |
+|---|---|---|
+| **Image1** | `LoadImage` #40 | 画風の元。かつキャンバス本体。顔をマスクで塗る |
+| **Image2** | `LoadImage` #47 | 顔の形 |
+
+### 手順
+
+1. **Image1 #40** に画風の元になる絵を読み込む
+2. #40 を右クリック → **Open in MaskEditor** で、差し替えたい**顔の範囲を塗る**
+3. **Image2 #47** に顔の形の元になる絵を読み込む
+4. 実行。`PreviewImage` #59 に貼り付け結果、`SaveImage` #9 に最終出力
+
+### 仕組み
+
+貼り付け → マスク付き img2img → マスク外を元に戻す、の 3 段構成。
+
+```
+Image1 ─┬ GetImageSize #52 → 解像度
+        ├ CLIPVisionEncode #39 → StyleModelApply #41   (画風)
+        ├ ImageCompositeMasked #54 の destination
+        └ ImageCompositeMasked #60 の destination       (最後に戻す)
+  MASK ── GrowMask #57 → FeatherMask #58 → #54 / #56 / #60
+
+Image2 ── ImageScale #53 → #54 の source                (顔の形)
+
+#54 → VAEEncode #55 → SetLatentNoiseMask #56 → SamplerCustomAdvanced #13
+#13 → VAEDecode #8 → #60 の source → SaveImage #9
+```
+
+1. `LoadImage` の `MASK` 出力は `1. - alpha`（`nodes.py:1787`）なので、
+   MaskEditor で塗った領域が `1` になる。
+2. `ImageCompositeMasked` #54 がその領域に Image2 を貼る（雑なコラージュ）。
+3. `SetLatentNoiseMask` #56 でマスク内だけをノイズ対象にする。
+   `SamplerCustomAdvanced` は `denoise_mask=noise_mask` として受け取る
+   （`nodes_custom_sampler.py:1055`）。`denoise` を下げれば貼った顔の形が残り、
+   Redux #41 が Image1 の画風で塗り直す。
+4. `VAEDecode` のあと `ImageCompositeMasked` #60 でマスク外を Image1 の画素に戻す。
+   **顔以外は 1 ピクセルも変わらない。** ここが「画風を完全に踏襲」の保証。
+
+解像度は `GetImageSize` #52 で Image1 から取る。マスクとキャンバスのサイズが
+必ず一致するので、マスクをリサイズする経路が要らない。
+Image1 が大きすぎると 8GB では OOM になるため、1024×1024 相当までに収める。
+
+**ControlNet は使わない。** 顔の形は貼り付けた画素そのものが担うので、
+8GB に 4GB の ControlNet を積む必要がない。
+
+### 位置合わせ
+
+`ImageCompositeMasked` #54 の `x` / `y` で Image2 をずらせる。
+まず #59 のプレビューを見て、Image2 の顔がマスクの位置に来るよう調整する。
+Image1 と Image2 で顔の大きさ・向きが大きく違うと破綻するので、
+**似た構図の 2 枚**を使うのが前提。
+
+### 調整箇所
+
+| 症状 | 変更 |
+|---|---|
+| 顔が Image2 に似ない | #17 `denoise` 0.55 → 0.40 |
+| 貼り付けた跡が残る・浮いて見える | #17 `denoise` 0.55 → 0.70 |
+| 継ぎ目の線が見える | #58 のぼかし 24 → 48 |
+| 顔だけ画風が違う | #41 `strength` 0.8 → 1.0 |
+| 塗った範囲が足りない | #57 `expand` 8 → 24 |
+
+### 必要なもの
+
+`Flux1_StyleBlend_TwoImages.json` と同じ。**カスタムノードも ControlNet も不要。**
+
+### 限界
+
+これは**構造ベースの差し替え**であって、顔認識による face swap ではない。
+Image2 の顔立ちは貼り付けた画素の形として伝わるが、`denoise` で塗り直す過程で
+どうしても崩れる。人物を特定できるレベルで同一性を移したい場合は
+PuLID-Flux / InstantID / ReActor などのノードパックが必要になる。
