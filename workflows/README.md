@@ -856,7 +856,7 @@ Image2 の画風が混ざらないことが**構造的に保証される**。
 
 ### 数値で詰めたいとき — 2段目・別案
 
-そのために「Image2 の前処理 2段目・別案 ◀ 数値で調整」を別系統で用意してある。
+そのために「Image2 の前処理 2段目・別案（Standard Lineart）◀ 数値で調整」を別系統で用意してある。
 `LineartStandardPreprocessor`（画面では **Standard Lineart**）の専用ノードなので、
 種類は固定される代わりに数値が触れる。
 
@@ -927,8 +927,8 @@ c_net.set_previous_controlnet(prev_cnet)
 |---|---|---|
 | 顔が似ない | 「形の適用 2段目（Ctrl+B で無効）」 | `strength` `0.45` → `0.70` |
 | 線が絵に残る | 同上 | `end_percent` `0.60` → `0.40` |
-| 線が拾えていない・多すぎる | 「Image2 の前処理 2段目 ◀ 種類を選ぶ」 | 種類を変える。`LineArtPreprocessor` ⇄ `HEDPreprocessor` |
-| 線を数値で詰めたい | 「Image2 の前処理 2段目・別案 ◀ 数値で調整」 | 上の表を参照。別案の段を有効にする |
+| 線が拾えていない・多すぎる | 「Image2 の前処理 2段目（AIO Aux Preprocessor）◀ 種類を選ぶ」 | 種類を変える。`LineArtPreprocessor` ⇄ `HEDPreprocessor` |
+| 線を数値で詰めたい | 「Image2 の前処理 2段目・別案（Standard Lineart）◀ 数値で調整」 | 上の表を参照。別案の段を有効にする |
 | 立体が出ない | 「形の適用 1段目」 | `strength` `0.85` → `1.00` |
 | 形が強すぎて画風が乗らない | 1段目・2段目の `strength` を両方下げる | — |
 | 画風が乗らない | 「画風の強さ（Redux）」 | `strength` `1.0` → `1.3` |
