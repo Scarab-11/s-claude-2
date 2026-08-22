@@ -9,7 +9,7 @@
 | `Flux1_FaceSwap_StyleFromImage1.json` | FLUX.1-dev 版。**Image1 の画風のまま顔だけ Image2 に差し替える**。8GB VRAM 向け |
 | `Flux1_Repaint_Image2_in_Image1Style.json` | FLUX.1-dev 版。**Image1 の画風で Image2 を丸ごと描き直す**。位置合わせ不要。8GB VRAM 向け |
 | `Flux2Klein_FaceSwap_StyleFromImage1.json` | FLUX.2 Klein 9B + Best Face Swap LoRA。**顔は Image2、画風は Image1**。マスク不要 |
-| `Flux1_ShapeOnly_FaceFromImage2.json` | FLUX.1-dev 版。**Image2 からは形だけ**を取り、画風は Image1。画風の混入なし。8GB VRAM 向け |
+| `Flux1_ShapeOnly_FaceFromImage2.json` | FLUX.1-dev 版。**Image2 からは形だけ**を取り、画風は Image1。前処理は depth / canny / lineart などから選択式、2 種併用可。8GB VRAM 向け |
 | `Flux2_StyleRef_x_ControlNet.json` | FLUX.2-dev 版。同じ構成だが **VRAM 16GB 以上が必要** |
 | `Krea2_StyleRef_x_Structure.json` | Krea2 版。depth ControlNet と img2img を切り替えられる統合版 |
 | `Krea2_StyleRef_x_DepthControlNet.json` | Krea2 版。depth ControlNet のみの初版 |
@@ -783,8 +783,8 @@ Do not copy the photographic lighting, skin texture, make-up or colors of Pictur
 
 `Flux1_ShapeOnly_FaceFromImage2.json`
 
-**Image2 の画素をモデルに一切渡さない。** 深度マップに変換してから ControlNet に
-入れるので、モデルが Image2 から受け取れるのは立体的な形だけになる。
+**Image2 の画素をモデルに一切渡さない。** グレースケールの形の情報に変換してから
+ControlNet に入れるので、モデルが Image2 から受け取れるのは形だけになる。
 
 | 何を | どこから | 割合 |
 |---|---|---|
@@ -794,9 +794,9 @@ Do not copy the photographic lighting, skin texture, make-up or colors of Pictur
 ```
 Image1 → 画風として読み取る → 画風の強さ（Redux）┐
                                                  ↓
-Image2 ─┬ 深度マップ → 形の適用 1段目・深度（立体）
-        │                        ↓
-        └ 輪郭線   → 形の適用 2段目・輪郭線 → サンプラー
+Image2 ─┬ 前処理 1段目 → 形の適用 1段目
+        │                      ↓
+        └ 前処理 2段目 → 形の適用 2段目 → サンプラー
 ```
 
 ### なぜプロンプトでは駄目だったのか
@@ -808,37 +808,66 @@ Image2 ─┬ 深度マップ → 形の適用 1段目・深度（立体）
 `no face paint`, `do not copy the colors of Picture 2` といった否定形を
 いくら重ねても、参照画像の見た目は残り続ける。**経路ごと断つしかない。**
 
-深度マップはグレースケールの立体情報だけで、色も筆致も含まない。
+深度マップや線画はグレースケールの形の情報だけで、色も筆致も含まない。
 Image2 の画風が混ざらないことが**構造的に保証される**。
+
+### 前処理の種類は手で選ぶ
+
+前処理は `AIO_Preprocessor`（画面では **AIO Aux Preprocessor** と表示されます）に
+してあるので、1 段目・2 段目それぞれで種類をプルダウンから選べる。
+2 段を別々の種類にできる。
+
+| 選ぶもの | 渡る情報 | 得意なこと |
+|---|---|---|
+| `DepthAnythingV2Preprocessor` | 深度マップ | 鼻の高さ・頬骨・顎の張り。**立体** |
+| `LineArtPreprocessor` | 線画 | 目・鼻・口の位置と形。**造作** |
+| `AnimeLineArtPreprocessor` | アニメ線画 | イラスト原稿向き。線が太い |
+| `CannyEdgePreprocessor` | 輪郭線 | 硬い。写真から輪郭だけ欲しいとき |
+| `HEDPreprocessor` | 柔らかい線 | 筆致に近い。絵画向き |
+| `DWPreprocessor` | 骨格 | 全身の姿勢。顔には効かない |
+| `none` | 元画像そのまま | **画風が混ざるので使わない** |
+
+選んだ種類に合わせて「Union の制御タイプ（1段目）」「Union の制御タイプ（2段目）」も
+変える。深度なら `depth`、線なら `canny/lineart/anime_lineart/mlsd`、
+骨格なら `openpose`。
+
+| 目的 | 1段目 | 2段目 |
+|---|---|---|
+| 顔を似せる（既定） | `DepthAnythingV2Preprocessor` | `LineArtPreprocessor` |
+| 絵画に寄せる | `DepthAnythingV2Preprocessor` | `HEDPreprocessor` |
+| 線画原稿から起こす | `AnimeLineArtPreprocessor` | 2段目は Ctrl+B で無効 |
+| 立体だけ欲しい | `DepthAnythingV2Preprocessor` | 2段目は Ctrl+B で無効 |
+
+前処理ごとの細かい数値（Canny のしきい値など）は触れない。`AIO_Preprocessor` は
+`image` と `resolution` 以外を既定値で呼ぶため（`__init__.py:97-126`）。
+しきい値を詰めたいときだけ、その前処理の専用ノードに差し替える。
 
 ### 手順
 
 1. 「Image1 — 画風・色・雰囲気」に画風の元を読み込む
 2. 「Image2 — 形だけを使う」に形の元を読み込む
-3. 実行
+3. 前処理の種類と制御タイプを選ぶ（既定のままでも動く）
+4. 実行
 
 解像度の設定は不要。Image2 の縦横比から自動で決まる。
 
 ### 必ず確認すること
 
-- 「1段目に渡る情報（深度）」→ **グレーの立体図**
-- 「2段目に渡る情報（輪郭線）」→ **黒地に白い線**
+- 「1段目に渡る情報」→ 選んだ前処理の結果
+- 「2段目に渡る情報」→ 同上
 
-この 2 つがモデルに渡る Image2 の情報の全て。色が付いていたら前処理が効いていない。
+この 2 つがモデルに渡る Image2 の情報の全て。**灰色か白黒であれば正常。**
+色が付いていたら前処理が `none` になっているか、効いていない。
 
 ### 形は 2 段で渡す
 
-| 段 | 渡すもの | 得意なこと |
-|---|---|---|
-| 1段目 | 深度マップ | 鼻の高さ・頬骨・顎の張り。**立体** |
-| 2段目 | 輪郭線（Canny） | 目・鼻・口の位置と形。**造作** |
-
-深度だけだとのっぺりして似ない。輪郭線だけだと立体が出ない。
+深度だけだとのっぺりして似ない。線だけだと立体が出ない。
 **2 つ重ねると顔の似方がはっきり上がる。**
 
-`ControlNetApplyAdvanced` は直列に繋ぐと連結される。1 段目の出力を 2 段目の
-入力に渡すと、`nodes.py:966-971` で `previous_controlnet` として連結され、
-両方の制御が同時にかかる。
+「形の適用 1段目」と「形の適用 2段目（Ctrl+B で無効）」
+（画面のノード検索では **Apply ControlNet** と表示されます）は直列に繋ぐと
+連結される。1 段目の出力を 2 段目の入力に渡すと、`nodes.py:966-971` で
+`previous_controlnet` として連結され、両方の制御が同時にかかる。
 
 ```python
 prev_cnet = d.get('control', None)
@@ -852,22 +881,22 @@ c_net.set_previous_controlnet(prev_cnet)
 
 ### 調整の順番
 
-1. **まず 1 段目（深度）だけで出す。**
-   「形の適用 2段目・輪郭線（Ctrl+B で無効）」を選んで **Ctrl+B**
+1. **まず 1 段目だけで出す。**
+   「形の適用 2段目（Ctrl+B で無効）」を選んで **Ctrl+B**
 2. **似方が足りなければ 2 段目を有効にする。** Ctrl+B をもう一度
 
 | 症状 | 変更するノード | 変更内容 |
 |---|---|---|
-| 顔が似ない | 「形の適用 2段目・輪郭線（Ctrl+B で無効）」 | `strength` `0.45` → `0.70` |
+| 顔が似ない | 「形の適用 2段目（Ctrl+B で無効）」 | `strength` `0.45` → `0.70` |
 | 線が絵に残る | 同上 | `end_percent` `0.60` → `0.40` |
-| 線が拾えていない | 「Image2 → 輪郭線（造作を抽出）」 | `low_threshold` `0.15` → `0.08` |
-| 線が多すぎる | 同上 | `high_threshold` `0.40` → `0.70` |
-| 立体が出ない | 「形の適用 1段目・深度（立体）」 | `strength` `0.85` → `1.00` |
+| 線が拾えていない・多すぎる | 「Image2 の前処理 2段目 ◀ 種類を選ぶ」 | 種類を変える。`LineArtPreprocessor` ⇄ `HEDPreprocessor` |
+| 立体が出ない | 「形の適用 1段目」 | `strength` `0.85` → `1.00` |
 | 形が強すぎて画風が乗らない | 1段目・2段目の `strength` を両方下げる | — |
 | 画風が乗らない | 「画風の強さ（Redux）」 | `strength` `1.0` → `1.3` |
 | 仕上がりが硬い | 「FluxGuidance ◀ 絵の磨き具合」 | `2.5` → `1.8` |
+| 前処理が粗い | 前処理ノードの `resolution` | `1024` → `1536` |
 
-**2 段目の `end_percent` を `0.60` と低めにしてあるのが要点。** 輪郭線は序盤で
+**2 段目の `end_percent` を `0.60` と低めにしてあるのが要点。** 線は序盤で
 顔の造作を決めるのに使い、後半は画風に任せる。`1.0` にすると線がそのまま絵に残る。
 
 プロンプトには**画材だけ**を書く。人物の描写を書くと、そちらに引っ張られて
@@ -883,7 +912,7 @@ ControlNet の形と喧嘩する。
 
 ### 必要なもの
 
-`Flux1_StyleRef_x_ControlNet.json` と同じ。加えて深度前処理に
+`Flux1_StyleRef_x_ControlNet.json` と同じ。加えて前処理に
 [`comfyui_controlnet_aux`](https://github.com/Fannovel16/comfyui_controlnet_aux)
-が要る（Krea2 版で既に使っているものと同じ）。
-輪郭線は ComfyUI 標準の `Canny` なので追加不要。
+が要る（Krea2 版で既に使っているものと同じ）。前処理は 2 段ともここから選ぶので、
+これが無いと動かない。
