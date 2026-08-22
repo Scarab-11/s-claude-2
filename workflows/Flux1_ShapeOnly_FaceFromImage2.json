@@ -1,62 +1,9 @@
 {
   "id": "flux1-shapeonly-face-from-image2",
   "revision": 0,
-  "last_node_id": 67,
-  "last_link_id": 166,
+  "last_node_id": 68,
+  "last_link_id": 169,
   "nodes": [
-    {
-      "id": 27,
-      "type": "EmptySD3LatentImage",
-      "pos": [
-        130,
-        320
-      ],
-      "size": [
-        210,
-        110
-      ],
-      "flags": {},
-      "order": 17,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "width",
-          "type": "INT",
-          "widget": {
-            "name": "width"
-          },
-          "link": 146
-        },
-        {
-          "name": "height",
-          "type": "INT",
-          "widget": {
-            "name": "height"
-          },
-          "link": 147
-        }
-      ],
-      "outputs": [
-        {
-          "name": "LATENT",
-          "type": "LATENT",
-          "slot_index": 0,
-          "links": [
-            116
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.3.44",
-        "Node name for S&R": "EmptySD3LatentImage"
-      },
-      "widgets_values": [
-        1024,
-        1024,
-        1
-      ]
-    },
     {
       "id": 17,
       "type": "BasicScheduler",
@@ -97,7 +44,7 @@
         28,
         1.0
       ],
-      "title": "steps と denoise"
+      "title": "steps と denoise ◀ denoise で I2I の強さ"
     },
     {
       "id": 41,
@@ -267,7 +214,8 @@
             12,
             142,
             157,
-            165
+            165,
+            168
           ]
         }
       ],
@@ -520,7 +468,7 @@
         {
           "name": "latent_image",
           "type": "LATENT",
-          "link": 116
+          "link": 169
         }
       ],
       "outputs": [
@@ -1083,7 +1031,8 @@
             144,
             145,
             151,
-            159
+            159,
+            167
           ]
         }
       ],
@@ -1255,7 +1204,7 @@
       "outputs": [],
       "properties": {},
       "widgets_values": [
-        "## 考え方\n**Image2 の画素はモデルに一切渡らない。**\nグレースケールの形の情報に変換してから ControlNet に入れるので、\nモデルが Image2 から受け取れるのは形だけ。色も筆致も含まれない。\n\nプロンプトで Image2 の画風を打ち消そうとしても効かないのは、\n参照画像がフルカラーの画素をそのまま渡していたから。\n見えているものは言葉では消せない。だから経路ごと断つ。\n\n| 何を | どこから | 割合 |\n|---|---|---|\n| 画風・色・雰囲気 | 「Image1 — 画風・色・雰囲気」 | 100% |\n| 形 | 「Image2 — 形だけを使う」 | 100% |\n\n## 3 系統を Ctrl+B で組み合わせる\n```\nImage1 → 画風の強さ（Redux）─────────────┐\n                                          ↓\nImage2 ─┬ 前処理 1段目 ─→ 形の適用 1段目\n        │                       ↓\n        ├ 前処理 2段目 ─→ 形の適用 2段目\n        │                       ↓\n        └ 2段目・別案 ─→ 形の適用 2段目・別案 → サンプラー\n```\n\n3 つとも直列。**有効にした段だけが効く。**\n既定では「形の適用 2段目・別案（Ctrl+B で無効）」が無効。\n\n| 使いたい構成 | 有効にする段 |\n|---|---|\n| 立体だけ | 1段目 |\n| 立体 ＋ 線（種類を選ぶ）※既定 | 1段目 ＋ 2段目 |\n| 立体 ＋ 線（数値で詰める） | 1段目 ＋ 2段目・別案 |\n| 線を 2 系統重ねる | 全部 |\n\n## 2 段目には 2 つの入口がある\n同じ **線を渡す** でも、性格が違う 2 つを用意してある。\n\n### 「Image2 の前処理 2段目（AIO Aux Preprocessor）◀ 種類を選ぶ」— 種類で選ぶ\n`preprocessor` のプルダウンから選ぶ。\n\n| 選ぶもの | 渡る情報 | 得意なこと |\n|---|---|---|\n| `DepthAnythingV2Preprocessor` | 深度マップ | 鼻の高さ・頬骨・顎。**立体** |\n| `LineArtPreprocessor` | 線画 | 目・鼻・口の位置。**造作** |\n| `AnimeLineArtPreprocessor` | アニメ線画 | イラスト原稿向き |\n| `CannyEdgePreprocessor` | 輪郭線 | 硬い。写真から輪郭だけ |\n| `HEDPreprocessor` | 柔らかい線 | 筆致に近い。絵画向き |\n| `DWPreprocessor` | 骨格 | 全身の姿勢。顔には効かない |\n| `none` | 元画像そのまま | **画風が混ざるので使わない** |\n\n触れるのは `preprocessor` と `resolution` の 2 つだけ。\nしきい値のような数値は既定値で固定される。\n\n### 「Image2 の前処理 2段目・別案（Standard Lineart）◀ 数値で調整」— 数値で詰める\nStandard Lineart の専用ノード。種類は固定だが数値が触れる。\n\n| 数値 | 既定 | 効果 |\n|---|---|---|\n| `intensity_threshold` | 8 | 下げる（→3）と薄い線まで拾う。上げる（→14）と濃い線だけ |\n| `guassian_sigma` | 6.0 | 上げる（→12）とノイズが消えて線が太くまとまる |\n| `resolution` | 1024 | 下げると細かいざらつきが消える |\n\n`guassian_sigma` は綴りが誤っているが、これが正式な名前\n(`node_wrappers/lineart_standard.py:9`)。\n\n## 手順\n1. 「Image1 — 画風・色・雰囲気」に画風の元を読み込む\n2. 「Image2 — 形だけを使う」に形の元を読み込む\n3. 実行（既定のままで動く）\n\n解像度の設定は不要。Image2 の縦横比から自動で決まる。\n\n## 必ず確認すること\n「1段目に渡る情報」「2段目に渡る情報」「2段目・別案に渡る情報」を見る。\n**灰色か白黒であれば正常。** 色が付いていたら前処理が効いていない。\n\n3 つのプレビューはサンプラーを回さなくても更新される。\n**線の出方はここで見比べてから決める。**\n\n## 調整の順番\n**1. まず 1段目だけで出す。**\n「形の適用 2段目（Ctrl+B で無効）」を選んで Ctrl+B。\n\n**2. 似方が足りなければ 2段目を戻す。** Ctrl+B をもう一度。\n\n**3. 線の出方に不満があれば別案に切り替える。**\n「形の適用 2段目（Ctrl+B で無効）」を Ctrl+B して、\n「形の適用 2段目・別案（Ctrl+B で無効）」の Ctrl+B を解除。\n\n| 症状 | 変更するノード | 変更内容 |\n|---|---|---|\n| 顔が似ない | 「形の適用 2段目（Ctrl+B で無効）」 | strength 0.45 → 0.70 |\n| 線が絵に残る | 同上 | end_percent 0.60 → 0.40 |\n| 線がざらつく | 「Image2 の前処理 2段目（AIO Aux Preprocessor）◀ 種類を選ぶ」 | resolution 1024 → 512 |\n| 線を細かく詰めたい | 「Image2 の前処理 2段目・別案（Standard Lineart）◀ 数値で調整」 | 上の表を参照 |\n| 立体が出ない | 「形の適用 1段目」 | strength 0.85 → 1.00 |\n| 形が強すぎて画風が乗らない | 各段の strength を下げる | — |\n| 画風が乗らない | 「画風の強さ（Redux）」 | strength 1.0 → 1.3 |\n| 仕上がりが硬い | 「FluxGuidance ◀ 絵の磨き具合」 | 2.5 → 1.8 |\n\n**2段目の end_percent を低めにしてあるのが要点。**\n線は序盤で顔の造作を決めるのに使い、後半は画風に任せる。\n1.0 にすると線がそのまま絵に残る。\n\nプロンプトには**画材だけ**を書く。人物の描写を書くと、\nそちらに引っ張られて ControlNet の形と喧嘩する。\n\n## Union の制御タイプについて\n「Union の制御タイプ（1段目）」「Union の制御タイプ（2段目）」は\n画像を変えない。番号を 1 個添えるだけ\n(`comfy_extras/nodes_controlnet.py:24-33`)。\n\n**Union Pro 2.0 では受け取る部品が無いので、何を選んでも同じ。**\n1.0 に戻したときだけ意味を持つ。`auto` は自動判別ではなく\n**番号を添えない**という意味。\n\n## 必要なもの\n| 種類 | ファイル | 置き場所 |\n|---|---|---|\n| diffusion model | flux1-dev-fp8.safetensors | `models/diffusion_models/` |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l | `models/text_encoders/` |\n| VAE | ae.safetensors | `models/vae/` |\n| style model | flux1-redux-dev.safetensors | `models/style_models/` |\n| clip vision | sigclip_vision_patch14_384.safetensors | `models/clip_vision/` |\n| ControlNet | FLUX.1-dev-Controlnet-Union-Pro-2.0 | `models/controlnet/` |\n\nカスタムノードは `comfyui_controlnet_aux` の 1 つだけ。\n前処理は 3 つともここから来ているので、無いと動かない。"
+        "## 考え方\n**Image2 の画素はモデルに一切渡らない。**\nグレースケールの形の情報に変換してから ControlNet に入れるので、\nモデルが Image2 から受け取れるのは形だけ。色も筆致も含まれない。\n\nプロンプトで Image2 の画風を打ち消そうとしても効かないのは、\n参照画像がフルカラーの画素をそのまま渡していたから。\n見えているものは言葉では消せない。だから経路ごと断つ。\n\n| 何を | どこから | 割合 |\n|---|---|---|\n| 画風・色・雰囲気 | 「Image1 — 画風・色・雰囲気」 | 100% |\n| 形 | 「Image2 — 形だけを使う」 | 100% |\n\n※ これが成立するのは denoise 1.00 のとき。下の I2I の項を読むこと。\n\n## 顔専用ではない\n風景・建築・静物・動物、何にでも使える。むしろ奥行きの差が大きい\n風景のほうが深度マップは効く。題材を変えたら\n「プロンプト（画材だけを書く）」の冒頭だけ書き換える。\n\n| 題材 | 冒頭に書く語 |\n|---|---|\n| 人物 | `a portrait painting` |\n| 風景 | `a landscape painting` |\n| 建築 | `an architectural painting` |\n| 静物 | `a still life painting` |\n\n後半の画材の記述は残す。そこが Image1 の画風に寄せる部分。\n\n## I2I（denoise）\n「steps と denoise ◀ denoise で I2I の強さ」の `denoise` ひとつで決まる。\n切り替えノードは要らない。\n\n| denoise | 何が起きるか |\n|---|---|\n| **1.00**（既定） | **I2I 無効。** Image2 の画素は完全に打ち消される |\n| 0.85〜0.95 | Image2 の色味がうっすら残る |\n| 0.60〜0.80 | Image2 の色と質感がはっきり残る。ラフから起こすとき |\n| 0.40〜0.55 | ほぼ Image2 のまま。画風を軽く乗せ替えるだけ |\n\n1.00 で無効になるのは flow matching のノイズ付与が\n`sigma * noise + (1.0 - sigma) * latent_image`\n(`comfy/model_sampling.py:94-97`) だから。sigma が 1.0 のとき\nlatent_image の係数が 0 になり、出発点が消える。\n\n**denoise を下げると Image2 の画風が戻ってくる。**\nこのワークフローの売りは denoise 1.00 のときだけ成立する。\n下げるのは、Image2 の色を意図的に残したいときだけにする。\n\n## 3 系統を Ctrl+B で組み合わせる\n```\nImage1 → 画風の強さ（Redux）─────────────┐\n                                          ↓\nImage2 ─┬ 前処理 1段目 ─→ 形の適用 1段目\n        │                       ↓\n        ├ 前処理 2段目 ─→ 形の適用 2段目\n        │                       ↓\n        ├ 2段目・別案 ─→ 形の適用 2段目・別案 ─→ サンプラー\n        │                                          ↑\n        └ 出発点の latent（denoise < 1.0 のとき）──┘\n```\n\n3 段とも直列。**有効にした段だけが効く。**\n既定では「形の適用 2段目・別案（Ctrl+B で無効）」が無効。\n\n| 使いたい構成 | 有効にする段 |\n|---|---|\n| 立体だけ | 1段目 |\n| 立体 ＋ 線（種類を選ぶ）※既定 | 1段目 ＋ 2段目 |\n| 立体 ＋ 線（数値で詰める） | 1段目 ＋ 2段目・別案 |\n| 線を 2 系統重ねる | 全部 |\n\n## 2 段目には 2 つの入口がある\n同じ **線を渡す** でも、性格が違う 2 つを用意してある。\n\n### 「Image2 の前処理 2段目（AIO Aux Preprocessor）◀ 種類を選ぶ」\n`preprocessor` のプルダウンから選ぶ。\n\n| 選ぶもの | 渡る情報 | 得意なこと |\n|---|---|---|\n| `DepthAnythingV2Preprocessor` | 深度マップ | 立体・奥行き |\n| `LineArtPreprocessor` | 線画 | 造作の位置と形 |\n| `AnimeLineArtPreprocessor` | アニメ線画 | イラスト原稿向き |\n| `CannyEdgePreprocessor` | 輪郭線 | 硬い。写真から輪郭だけ |\n| `HEDPreprocessor` | 柔らかい線 | 筆致に近い。絵画向き |\n| `MLSDdetector` | 直線 | 建築・街並み |\n| `DWPreprocessor` | 骨格 | 全身の姿勢 |\n| `none` | 元画像そのまま | **画風が混ざるので使わない** |\n\n触れるのは `preprocessor` と `resolution` の 2 つだけ。\nしきい値のような数値は既定値で固定される。\n\n### 「Image2 の前処理 2段目・別案（Standard Lineart）◀ 数値で調整」\n専用ノードなので数値が触れる。種類は固定。\n\n| 数値 | 既定 | 効果 |\n|---|---|---|\n| `intensity_threshold` | 8 | 下げる（→3）と薄い線まで拾う。上げる（→14）と濃い線だけ |\n| `guassian_sigma` | 6.0 | 上げる（→12）とノイズが消えて線が太くまとまる |\n| `resolution` | 1024 | 下げると細かいざらつきが消える |\n\n`guassian_sigma` は綴りが誤っているが、これが正式な名前\n(`node_wrappers/lineart_standard.py:9`)。\n\n## 題材別のおすすめ\n| 題材 | 1段目 | 2段目 |\n|---|---|---|\n| 人物・静物 | `DepthAnythingV2Preprocessor` | `LineArtPreprocessor` |\n| 自然の風景 | `DepthAnythingV2Preprocessor` | Ctrl+B で無効 |\n| 建築・街並み | `DepthAnythingV2Preprocessor` | `MLSDdetector` |\n| 絵画に寄せる | `DepthAnythingV2Preprocessor` | `HEDPreprocessor` |\n\n## 手順\n1. 「Image1 — 画風・色・雰囲気」に画風の元を読み込む\n2. 「Image2 — 形だけを使う」に形の元を読み込む\n3. 実行（既定のままで動く）\n\n解像度の設定は不要。Image2 の縦横比から自動で決まる。\n\n## 必ず確認すること\n「1段目に渡る情報」「2段目に渡る情報」「2段目・別案に渡る情報」を見る。\n**灰色か白黒であれば正常。** 色が付いていたら前処理が効いていない。\n\n3 つのプレビューはサンプラーを回さなくても更新される。\n**線の出方はここで見比べてから決める。**\n\n## 調整の順番\n**1. まず 1段目だけで出す。**\n「形の適用 2段目（Ctrl+B で無効）」を選んで Ctrl+B。\n\n**2. 形が足りなければ 2段目を戻す。** Ctrl+B をもう一度。\n\n**3. 線の出方に不満があれば別案に切り替える。**\n「形の適用 2段目（Ctrl+B で無効）」を Ctrl+B して、\n「形の適用 2段目・別案（Ctrl+B で無効）」の Ctrl+B を解除。\n\n| 症状 | 変更するノード | 変更内容 |\n|---|---|---|\n| 形が似ない | 「形の適用 2段目（Ctrl+B で無効）」 | strength 0.45 → 0.70 |\n| 線が絵に残る | 同上 | end_percent 0.60 → 0.40 |\n| 線がざらつく | 「Image2 の前処理 2段目（AIO Aux Preprocessor）◀ 種類を選ぶ」 | resolution 1024 → 512 |\n| 線を数値で詰めたい | 「Image2 の前処理 2段目・別案（Standard Lineart）◀ 数値で調整」 | 上の表を参照 |\n| 立体が出ない | 「形の適用 1段目」 | strength 0.85 → 1.00 |\n| 形が強すぎて画風が乗らない | 各段の strength を下げる | — |\n| 画風が乗らない | 「画風の強さ（Redux）」 | strength 1.0 → 1.3 |\n| 仕上がりが硬い | 「FluxGuidance ◀ 絵の磨き具合」 | 2.5 → 1.8 |\n| Image2 の色を残したい | 「steps と denoise ◀ denoise で I2I の強さ」 | denoise 1.00 → 0.80 |\n\n**2段目の end_percent を低めにしてあるのが要点。**\n線は序盤で形を決めるのに使い、後半は画風に任せる。\n1.0 にすると線がそのまま絵に残る。\n\n## Union の制御タイプについて\n「Union の制御タイプ（1段目）」「Union の制御タイプ（2段目）」は\n画像を変えない。番号を 1 個添えるだけ\n(`comfy_extras/nodes_controlnet.py:24-33`)。\n\n**Union Pro 2.0 では受け取る部品が無いので、何を選んでも同じ。**\n1.0 に戻したときだけ意味を持つ。`auto` は自動判別ではなく\n**番号を添えない**という意味。\n\n## 必要なもの\n| 種類 | ファイル | 置き場所 |\n|---|---|---|\n| diffusion model | flux1-dev-fp8.safetensors | `models/diffusion_models/` |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l | `models/text_encoders/` |\n| VAE | ae.safetensors | `models/vae/` |\n| style model | flux1-redux-dev.safetensors | `models/style_models/` |\n| clip vision | sigclip_vision_patch14_384.safetensors | `models/clip_vision/` |\n| ControlNet | FLUX.1-dev-Controlnet-Union-Pro-2.0 | `models/controlnet/` |\n\nカスタムノードは `comfyui_controlnet_aux` の 1 つだけ。\n前処理は 3 つともここから来ているので、無いと動かない。"
       ],
       "color": "#432",
       "bgcolor": "#653"
@@ -1287,7 +1236,6 @@
           "name": "width",
           "type": "INT",
           "links": [
-            146,
             148
           ]
         },
@@ -1295,7 +1243,6 @@
           "name": "height",
           "type": "INT",
           "links": [
-            147,
             149
           ]
         },
@@ -1635,6 +1582,49 @@
         0.0,
         0.6
       ]
+    },
+    {
+      "id": 68,
+      "type": "VAEEncode",
+      "pos": [
+        130,
+        320
+      ],
+      "size": [
+        250,
+        46
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "Image2 → 出発点の latent（I2I）",
+      "inputs": [
+        {
+          "name": "pixels",
+          "type": "IMAGE",
+          "link": 167
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 168
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            169
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "VAEEncode"
+      },
+      "widgets_values": []
     }
   ],
   "links": [
@@ -1733,14 +1723,6 @@
       30,
       0,
       "MODEL"
-    ],
-    [
-      116,
-      27,
-      0,
-      13,
-      4,
-      "LATENT"
     ],
     [
       117,
@@ -1869,22 +1851,6 @@
       60,
       0,
       "IMAGE"
-    ],
-    [
-      146,
-      60,
-      0,
-      27,
-      0,
-      "INT"
-    ],
-    [
-      147,
-      60,
-      1,
-      27,
-      1,
-      "INT"
     ],
     [
       148,
@@ -2029,6 +1995,30 @@
       22,
       1,
       "CONDITIONING"
+    ],
+    [
+      167,
+      56,
+      0,
+      68,
+      0,
+      "IMAGE"
+    ],
+    [
+      168,
+      10,
+      0,
+      68,
+      1,
+      "VAE"
+    ],
+    [
+      169,
+      68,
+      0,
+      13,
+      4,
+      "LATENT"
     ]
   ],
   "groups": [
@@ -2073,7 +2063,7 @@
     },
     {
       "id": 4,
-      "title": "Image size",
+      "title": "出発点の latent",
       "bounding": [
         -160,
         190,

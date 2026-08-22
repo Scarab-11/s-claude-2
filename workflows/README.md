@@ -9,7 +9,7 @@
 | `Flux1_FaceSwap_StyleFromImage1.json` | FLUX.1-dev 版。**Image1 の画風のまま顔だけ Image2 に差し替える**。8GB VRAM 向け |
 | `Flux1_Repaint_Image2_in_Image1Style.json` | FLUX.1-dev 版。**Image1 の画風で Image2 を丸ごと描き直す**。位置合わせ不要。8GB VRAM 向け |
 | `Flux2Klein_FaceSwap_StyleFromImage1.json` | FLUX.2 Klein 9B + Best Face Swap LoRA。**顔は Image2、画風は Image1**。マスク不要 |
-| `Flux1_ShapeOnly_FaceFromImage2.json` | FLUX.1-dev 版。**Image2 からは形だけ**を取り、画風は Image1。前処理は depth / canny / lineart などから選択式、2 種併用可。8GB VRAM 向け |
+| `Flux1_ShapeOnly_FaceFromImage2.json` | FLUX.1-dev 版。**Image2 からは形だけ**を取り、画風は Image1。前処理は depth / canny / lineart などから選択式、2 種併用可。img2img も統合済み。人物にも風景にも使える。8GB VRAM 向け |
 | `Flux2_StyleRef_x_ControlNet.json` | FLUX.2-dev 版。同じ構成だが **VRAM 16GB 以上が必要** |
 | `Krea2_StyleRef_x_Structure.json` | Krea2 版。depth ControlNet と img2img を切り替えられる統合版 |
 | `Krea2_StyleRef_x_DepthControlNet.json` | Krea2 版。depth ControlNet のみの初版 |
@@ -801,6 +801,9 @@ Image2 ─┬ 前処理 1段目 ─→ 形の適用 1段目
         └ 2段目・別案 ─→ 形の適用 2段目・別案 → サンプラー
 ```
 
+出発点の latent は Image2 を VAE エンコードしたもの。**denoise `1.00` のときは
+数学的に打ち消される**ので、既定では img2img は効かない（下の I2I の項）。
+
 3 系統が直列に繋がっていて、**有効にした段だけが効く**。切り替えは Ctrl+B。
 
 | 使いたい構成 | 有効にする段 |
@@ -811,6 +814,43 @@ Image2 ─┬ 前処理 1段目 ─→ 形の適用 1段目
 | 線を 2 系統重ねる | 全部 |
 
 出荷時は「形の適用 2段目・別案（Ctrl+B で無効）」だけが無効になっている。
+
+### 顔専用ではない
+
+風景・建築・静物・動物、何にでも使える。むしろ奥行きの差が大きい風景のほうが
+深度マップは効く。題材を変えたら「プロンプト（画材だけを書く）」の冒頭だけ
+書き換える（`a portrait painting` → `a landscape painting` など）。
+後半の画材の記述は残す。そこが Image1 の画風に寄せる部分。
+
+| 題材 | 1段目 | 2段目 |
+|---|---|---|
+| 人物・静物 | `DepthAnythingV2Preprocessor` | `LineArtPreprocessor` |
+| 自然の風景 | `DepthAnythingV2Preprocessor` | Ctrl+B で無効 |
+| 建築・街並み | `DepthAnythingV2Preprocessor` | `MLSDdetector` |
+| 絵画に寄せる | `DepthAnythingV2Preprocessor` | `HEDPreprocessor` |
+
+### I2I は denoise ひとつで決まる
+
+出発点の latent を空にするか Image2 にするかを切り替えるノードは無い。
+flow matching のノイズ付与が
+
+```python
+sigma * noise + (1.0 - sigma) * latent_image   # comfy/model_sampling.py:94-97
+```
+
+なので、`denoise` が `1.00` のとき `sigma` も `1.00` になり **latent_image の係数が
+0** になる。出発点に何を入れても完全に打ち消される。だから
+「steps と denoise ◀ denoise で I2I の強さ」の数値ひとつでモードが決まる。
+
+| denoise | 何が起きるか |
+|---|---|
+| **`1.00`**（既定） | **I2I 無効。** Image2 の画素は完全に打ち消される |
+| `0.85`〜`0.95` | Image2 の色味がうっすら残る |
+| `0.60`〜`0.80` | Image2 の色と質感がはっきり残る。ラフから起こすとき |
+| `0.40`〜`0.55` | ほぼ Image2 のまま。画風を軽く乗せ替えるだけ |
+
+**denoise を下げると Image2 の画風が戻ってくる。** このワークフローの
+「画風が混ざらない」保証は `denoise 1.00` のときだけ成立する。
 
 ### なぜプロンプトでは駄目だったのか
 
@@ -933,6 +973,7 @@ c_net.set_previous_controlnet(prev_cnet)
 | 形が強すぎて画風が乗らない | 1段目・2段目の `strength` を両方下げる | — |
 | 画風が乗らない | 「画風の強さ（Redux）」 | `strength` `1.0` → `1.3` |
 | 仕上がりが硬い | 「FluxGuidance ◀ 絵の磨き具合」 | `2.5` → `1.8` |
+| Image2 の色を残したい | 「steps と denoise ◀ denoise で I2I の強さ」 | `denoise` `1.00` → `0.80` |
 | 前処理が粗い | 前処理ノードの `resolution` | `1024` → `1536` |
 
 **2 段目の `end_percent` を `0.60` と低めにしてあるのが要点。** 線は序盤で
