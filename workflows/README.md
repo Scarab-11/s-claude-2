@@ -5,7 +5,8 @@
 | ファイル | 内容 |
 |---|---|
 | `Flux1_StyleRef_x_ControlNet.json` | **推奨。** FLUX.1-dev 版。Image1 の画風 × Image2 の構図。8GB VRAM 向け |
-| `Flux1_StyleBlend_TwoImages.json` | FLUX.1-dev 版。**2枚の画風を融合**させる（構図制御なし）。人物にも風景にも使える。8GB VRAM 向け |
+| `Flux1_StyleBlend_TwoImages.json` | FLUX.1-dev 版。**2枚の画風を融合**させる（構図制御なし）。カスタムノード不要。8GB VRAM 向け |
+| `Flux1_StyleBlend_ShapeLocked.json` | 上の版に **depth ControlNet で形の固定**を足したもの。プロンプト無しでも勝手な被写体が湧かない。8GB VRAM 向け |
 | `Flux1_FaceSwap_StyleFromImage1.json` | FLUX.1-dev 版。**Image1 の画風のまま顔だけ Image2 に差し替える**。8GB VRAM 向け |
 | `Flux1_Repaint_Image2_in_Image1Style.json` | FLUX.1-dev 版。**Image1 の画風で Image2 を丸ごと描き直す**。位置合わせ不要。8GB VRAM 向け |
 | `Flux2Klein_FaceSwap_StyleFromImage1.json` | FLUX.2 Klein 9B + Best Face Swap LoRA。**顔は Image2、画風は Image1**。マスク不要 |
@@ -18,6 +19,7 @@
 - [FLUX.2 版](#flux2-版)
 - [FLUX.1 版](#flux1-版) — 画風 × 構図
 - [2枚の画風を融合する版](#2枚の画風を融合する版)
+- [形を固定した融合版](#形を固定した融合版)
 - [Face Swap 版](#face-swap-版)
 - [Image1 の画風で Image2 を描き直す版](#image1-の画風で-image2-を描き直す版)
 - [Klein Face Swap 版](#klein-face-swap-版)
@@ -511,6 +513,79 @@ cond *= strength
 カスタムノードも不要。
 
 構図を指定する経路が無いので、レイアウトはプロンプトと seed 任せになる。
+**この一点が、頼んでいない被写体が湧く原因になる。**
+確実に止めるには次の版を使う。
+
+---
+
+## 形を固定した融合版
+
+`Flux1_StyleBlend_ShapeLocked.json`
+
+上の版と同じ構成に、**重ねた画像から取った深度で形を固定する経路**を足したもの。
+
+### なぜ必要か
+
+`Flux1_StyleBlend_TwoImages.json` には形を固定する経路が無い。
+`denoise` の分だけ画素は描き直され、そこで何を描くかを決めるものが
+プロンプトと Redux トークンしかない。どちらも弱いと、モデルの事前分布が前に出る。
+Flux dev のそれは人物の顔で、山の画像 2 枚からでも山肌に顔が現れる。
+
+**プロンプトを空にしても止まらない。**
+空は「指定しない」ではなく「事前分布に任せる」という指定だから、
+言葉の側では消せない。
+
+この版は深度を全ステップ効かせて形を押さえる。
+山の形が最初から最後まで固定されているので、顔に化ける余地が無い。
+
+```
+形:   Image1 ┐
+              ├ 2枚を重ねる ┬ latent 化 ─────────────┐
+      Image2 ┘              └ 前処理（深度）→ 形を固定する ┤
+                                                        ↓
+画風: Image1 → 読み取る → 画風A の強さ ┐              サンプラー
+      Image2 → 読み取る → 画風B の強さ ┴→ 形を固定する ┘
+```
+
+### 既定値
+
+| ノード | 値 | 理由 |
+|---|---|---|
+| 「プロンプト（空でよい）」 | 空 | 形は深度が押さえるので不要 |
+| 「ネガティブプロンプト（空でよい）」 | 空 | 形を固定するノードが両方要求するので置いてある |
+| 「形を固定する（Apply ControlNet）」 | `1.0` / `0.0` / `1.0` | `end_percent` が `1.0` であることが要点 |
+| 「Union の制御タイプ」 | `depth` | 前処理を変えたらここも合わせる |
+| 「denoise ◀ 元の2枚をどれだけ残すか」 | `0.30` | 重ねた画素をできるだけ残す |
+| 「画風A の強さ」「画風B の強さ」 | `0.9` | 下げるほど事前分布が前に出る |
+
+### 効いているかの確認
+
+「ControlNet に渡る情報」を見る。**灰色の濃淡であれば正常。**
+色が付いていたら前処理が効いていない。
+
+### 形の固定を弱めたいとき
+
+深度で固定すると絵の自由度は下がる。ゆるめるなら上から順に。
+
+| 変更するノード | 変更内容 |
+|---|---|
+| 「形を固定する（Apply ControlNet）」 | `end_percent` `1.0` → `0.7` |
+| 同上 | `strength` `1.0` → `0.7` |
+| 「denoise ◀ 元の2枚をどれだけ残すか」 | `0.30` → `0.45` |
+
+**`end_percent` を下げるほど後半が自由になり、顔が湧く余地が戻る。**
+`1.0` のままなら湧かない。
+
+### 必要なもの
+
+`Flux1_StyleBlend_TwoImages.json` のものに加えて、
+
+| 種類 | ファイル | 置き場所 |
+|---|---|---|
+| ControlNet | FLUX.1-dev-Controlnet-Union-Pro-2.0 | `models/controlnet/` |
+
+カスタムノードは `comfyui_controlnet_aux` の 1 つ。
+ControlNet の重みは 1 つしか読まないので、VRAM の増分は 4GB 程度。
 
 ---
 
