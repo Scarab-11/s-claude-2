@@ -92,6 +92,18 @@ textarea#textArea {
   margin: 8px 0 0;
 }
 
+.inline-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #57606a;
+}
+
+.inline-field select {
+  width: auto;
+}
+
 .engine-row {
   margin-bottom: 4px;
 }

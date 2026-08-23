@@ -24,6 +24,11 @@ const rateValue = document.getElementById("rateValue");
 const pitchValue = document.getElementById("pitchValue");
 const volumeValue = document.getElementById("volumeValue");
 
+const exportFormat = document.getElementById("exportFormat");
+const exportBtn = document.getElementById("exportBtn");
+const exportCancelBtn = document.getElementById("exportCancelBtn");
+const exportStatus = document.getElementById("exportStatus");
+
 const playBtn = document.getElementById("playBtn");
 const playFromHereBtn = document.getElementById("playFromHereBtn");
 const pauseBtn = document.getElementById("pauseBtn");
@@ -509,4 +514,212 @@ stopBtn.addEventListener("click", () => {
 
 window.addEventListener("beforeunload", () => {
   cancelAudio();
+});
+
+// --- Export to an audio file ---
+// Only possible with VOICEVOX: the Web Speech API plays straight to the
+// output device and never exposes the samples, so there is nothing to save.
+
+let exportCancelled = false;
+let exporting = false;
+
+function parseWav(arrayBuffer) {
+  const view = new DataView(arrayBuffer);
+  const tag = (offset) => String.fromCharCode(
+    view.getUint8(offset), view.getUint8(offset + 1),
+    view.getUint8(offset + 2), view.getUint8(offset + 3)
+  );
+
+  if (tag(0) !== "RIFF" || tag(8) !== "WAVE") throw new Error("WAV形式ではありません");
+
+  let channels = 1;
+  let sampleRate = 24000;
+  let bitsPerSample = 16;
+  let samples = null;
+
+  // Walk the chunk list rather than assuming fixed offsets: engines are
+  // free to insert LIST/fact chunks before the data.
+  let offset = 12;
+  while (offset + 8 <= view.byteLength) {
+    const id = tag(offset);
+    const size = view.getUint32(offset + 4, true);
+    const body = offset + 8;
+
+    if (id === "fmt ") {
+      channels = view.getUint16(body + 2, true);
+      sampleRate = view.getUint32(body + 4, true);
+      bitsPerSample = view.getUint16(body + 14, true);
+    } else if (id === "data") {
+      const length = Math.min(size, view.byteLength - body);
+      samples = new Int16Array(arrayBuffer.slice(body, body + length - (length % 2)));
+    }
+
+    offset = body + size + (size % 2);
+  }
+
+  if (!samples) throw new Error("WAVに音声データがありません");
+  if (bitsPerSample !== 16) throw new Error(`未対応のビット深度です: ${bitsPerSample}`);
+  return { channels, sampleRate, samples };
+}
+
+function buildWavFile(pieces, channels, sampleRate) {
+  const total = pieces.reduce((sum, p) => sum + p.length, 0);
+  const dataBytes = total * 2;
+  const buffer = new ArrayBuffer(44 + dataBytes);
+  const view = new DataView(buffer);
+  const writeTag = (offset, text) => {
+    for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+  };
+
+  writeTag(0, "RIFF");
+  view.setUint32(4, 36 + dataBytes, true);
+  writeTag(8, "WAVE");
+  writeTag(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * channels * 2, true);
+  view.setUint16(32, channels * 2, true);
+  view.setUint16(34, 16, true);
+  writeTag(36, "data");
+  view.setUint32(40, dataBytes, true);
+
+  const out = new Int16Array(buffer, 44, total);
+  let at = 0;
+  for (const piece of pieces) {
+    out.set(piece, at);
+    at += piece.length;
+  }
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Revoke late: revoking immediately can cancel the download in some browsers.
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function exportFilename(extension) {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+  // Keep this ASCII: browsers drop a download name containing non-ASCII
+  // characters and save the file as "download" with no extension.
+  return `yomiage_${stamp}.${extension}`;
+}
+
+function setExporting(active) {
+  exporting = active;
+  exportBtn.disabled = active;
+  exportCancelBtn.disabled = !active;
+  exportFormat.disabled = active;
+}
+
+async function runExport() {
+  if (currentEngine() !== "voicevox") {
+    exportStatus.textContent =
+      "音声ファイルの保存はVOICEVOX使用時のみ可能です。「読み上げエンジン」でVOICEVOXを選んでください。";
+    return;
+  }
+  if (!voicevoxSpeakersLoaded) {
+    exportStatus.textContent = "VOICEVOXに接続できていません。VOICEVOXを起動してから、エンジンを選び直してください。";
+    return;
+  }
+
+  const parts = splitIntoChunks(textArea.value.trim());
+  if (parts.length === 0) {
+    exportStatus.textContent = "音声にするテキストがありません";
+    return;
+  }
+
+  // Exporting re-synthesises everything; stop playback so the two do not
+  // compete for the engine.
+  cancelAudio();
+  finishSpeaking("");
+
+  exportCancelled = false;
+  setExporting(true);
+
+  const asMp3 = exportFormat.value === "mp3";
+  let encoder = null;
+  let channels = 1;
+  let sampleRate = 24000;
+  const pieces = [];
+
+  try {
+    for (let i = 0; i < parts.length; i++) {
+      if (exportCancelled) {
+        exportStatus.textContent = "中止しました";
+        return;
+      }
+      exportStatus.textContent = `音声を作成中... (${i + 1} / ${parts.length})`;
+      // Yield so the status text repaints between chunks.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const blob = await synthesizeVoicevox(parts[i]);
+      const wav = parseWav(await blob.arrayBuffer());
+
+      if (i === 0) {
+        channels = wav.channels;
+        sampleRate = wav.sampleRate;
+        if (asMp3) {
+          if (!window.lamejs) throw new Error("MP3エンコーダを読み込めませんでした");
+          encoder = new lamejs.Mp3Encoder(channels, sampleRate, 64);
+        }
+      }
+
+      if (asMp3) {
+        // Encode as we go so only the (much smaller) MP3 data is retained.
+        const BLOCK = 1152 * channels;
+        for (let at = 0; at < wav.samples.length; at += BLOCK) {
+          const block = wav.samples.subarray(at, Math.min(at + BLOCK, wav.samples.length));
+          const encoded = encoder.encodeBuffer(block);
+          if (encoded.length > 0) pieces.push(encoded);
+        }
+      } else {
+        pieces.push(wav.samples);
+      }
+    }
+
+    if (exportCancelled) {
+      exportStatus.textContent = "中止しました";
+      return;
+    }
+
+    let blob;
+    let extension;
+    if (asMp3) {
+      const tail = encoder.flush();
+      if (tail.length > 0) pieces.push(tail);
+      blob = new Blob(pieces, { type: "audio/mpeg" });
+      extension = "mp3";
+    } else {
+      blob = buildWavFile(pieces, channels, sampleRate);
+      extension = "wav";
+    }
+
+    const name = exportFilename(extension);
+    downloadBlob(blob, name);
+    const mb = (blob.size / 1024 / 1024).toFixed(1);
+    exportStatus.textContent = `完了: ${name} を保存しました（${mb} MB）`;
+  } catch (err) {
+    console.error(err);
+    exportStatus.textContent = `音声ファイルの作成に失敗しました: ${err.message}`;
+  } finally {
+    setExporting(false);
+  }
+}
+
+exportBtn.addEventListener("click", runExport);
+
+exportCancelBtn.addEventListener("click", () => {
+  exportCancelled = true;
+  exportStatus.textContent = "中止しています...";
 });

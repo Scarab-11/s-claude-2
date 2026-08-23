@@ -79,9 +79,30 @@
     </div>
     <p id="playStatus" class="status"></p>
   </section>
+
+  <section class="panel">
+    <h2>4. 音声ファイルとして保存</h2>
+    <div class="input-row">
+      <label class="inline-field">
+        形式
+        <select id="exportFormat">
+          <option value="mp3">MP3（小さい）</option>
+          <option value="wav">WAV（無圧縮・高音質）</option>
+        </select>
+      </label>
+      <button id="exportBtn" class="primary">音声ファイルを作成</button>
+      <button id="exportCancelBtn" class="secondary" disabled>中止</button>
+    </div>
+    <p id="exportStatus" class="status"></p>
+    <p class="hint">
+      この機能は <strong>VOICEVOX</strong> を選んでいるときだけ使えます。ブラウザ標準の音声は、
+      仕様上その音声データを取り出せないため保存できません。長い文章では作成に時間がかかります。
+    </p>
+  </section>
 </div>
 
 <script src="vendor/pdfjs/pdf.min.js"></script>
+<script src="vendor/lamejs/lame.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
