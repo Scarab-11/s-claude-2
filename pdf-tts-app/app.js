@@ -562,10 +562,8 @@ function parseWav(arrayBuffer) {
   return { channels, sampleRate, samples };
 }
 
-function buildWavFile(pieces, channels, sampleRate) {
-  const total = pieces.reduce((sum, p) => sum + p.length, 0);
-  const dataBytes = total * 2;
-  const buffer = new ArrayBuffer(44 + dataBytes);
+function buildWavHeader(dataBytes, channels, sampleRate) {
+  const buffer = new ArrayBuffer(44);
   const view = new DataView(buffer);
   const writeTag = (offset, text) => {
     for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
@@ -584,14 +582,13 @@ function buildWavFile(pieces, channels, sampleRate) {
   view.setUint16(34, 16, true);
   writeTag(36, "data");
   view.setUint32(40, dataBytes, true);
+  return buffer;
+}
 
-  const out = new Int16Array(buffer, 44, total);
-  let at = 0;
-  for (const piece of pieces) {
-    out.set(piece, at);
-    at += piece.length;
-  }
-  return new Blob([buffer], { type: "audio/wav" });
+function buildWavFile(pieces, channels, sampleRate) {
+  const total = pieces.reduce((sum, p) => sum + p.length, 0);
+  const header = buildWavHeader(total * 2, channels, sampleRate);
+  return new Blob([header, ...pieces], { type: "audio/wav" });
 }
 
 function downloadBlob(blob, filename) {
@@ -622,6 +619,28 @@ function setExporting(active) {
   exportFormat.disabled = active;
 }
 
+// Asks where to save before any synthesis happens. showSaveFilePicker
+// needs transient user activation, and synthesising a book takes minutes,
+// so the click that starts the export is the only moment it can be called.
+async function chooseDestination(filename, asMp3) {
+  if (!window.showSaveFilePicker) return null;
+
+  const accept = asMp3 ? { "audio/mpeg": [".mp3"] } : { "audio/wav": [".wav"] };
+  try {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: filename,
+      types: [{ description: asMp3 ? "MP3 音声" : "WAV 音声", accept }],
+    });
+    return { handle, writable: await handle.createWritable() };
+  } catch (err) {
+    if (err.name === "AbortError") return "cancelled";
+    // Any other failure (permission, unsupported context) falls back to
+    // an ordinary download rather than losing the export.
+    console.warn("showSaveFilePicker unavailable, falling back to download:", err);
+    return null;
+  }
+}
+
 async function runExport() {
   if (currentEngine() !== "voicevox") {
     exportStatus.textContent =
@@ -639,6 +658,18 @@ async function runExport() {
     return;
   }
 
+  const asMp3 = exportFormat.value === "mp3";
+  const extension = asMp3 ? "mp3" : "wav";
+  const filename = exportFilename(extension);
+
+  const destination = await chooseDestination(filename, asMp3);
+  if (destination === "cancelled") {
+    exportStatus.textContent = "保存をキャンセルしました";
+    return;
+  }
+  const writable = destination ? destination.writable : null;
+  const savedName = destination ? destination.handle.name : filename;
+
   // Exporting re-synthesises everything; stop playback so the two do not
   // compete for the engine.
   cancelAudio();
@@ -647,15 +678,28 @@ async function runExport() {
   exportCancelled = false;
   setExporting(true);
 
-  const asMp3 = exportFormat.value === "mp3";
   let encoder = null;
   let channels = 1;
   let sampleRate = 24000;
+  let bytesWritten = 0;
+  let pcmBytes = 0;
   const pieces = [];
+
+  // With a file handle the data goes straight to disk, so a long book never
+  // has to fit in memory; without one it is collected for a download.
+  const emit = async (data) => {
+    if (writable) {
+      await writable.write(data);
+      bytesWritten += data.byteLength !== undefined ? data.byteLength : data.length * 2;
+    } else {
+      pieces.push(data);
+    }
+  };
 
   try {
     for (let i = 0; i < parts.length; i++) {
       if (exportCancelled) {
+        if (writable) await writable.abort();
         exportStatus.textContent = "中止しました";
         return;
       }
@@ -672,6 +716,10 @@ async function runExport() {
         if (asMp3) {
           if (!window.lamejs) throw new Error("MP3エンコーダを読み込めませんでした");
           encoder = new lamejs.Mp3Encoder(channels, sampleRate, 64);
+        } else if (writable) {
+          // Reserve the header; its sizes are patched in once the total is known.
+          await writable.write(buildWavHeader(0, channels, sampleRate));
+          bytesWritten += 44;
         }
       }
 
@@ -681,36 +729,48 @@ async function runExport() {
         for (let at = 0; at < wav.samples.length; at += BLOCK) {
           const block = wav.samples.subarray(at, Math.min(at + BLOCK, wav.samples.length));
           const encoded = encoder.encodeBuffer(block);
-          if (encoded.length > 0) pieces.push(encoded);
+          if (encoded.length > 0) await emit(encoded);
         }
       } else {
-        pieces.push(wav.samples);
+        pcmBytes += wav.samples.byteLength;
+        await emit(wav.samples);
       }
     }
 
     if (exportCancelled) {
+      if (writable) await writable.abort();
       exportStatus.textContent = "中止しました";
       return;
     }
 
-    let blob;
-    let extension;
     if (asMp3) {
       const tail = encoder.flush();
-      if (tail.length > 0) pieces.push(tail);
-      blob = new Blob(pieces, { type: "audio/mpeg" });
-      extension = "mp3";
-    } else {
-      blob = buildWavFile(pieces, channels, sampleRate);
-      extension = "wav";
+      if (tail.length > 0) await emit(tail);
     }
 
-    const name = exportFilename(extension);
-    downloadBlob(blob, name);
-    const mb = (blob.size / 1024 / 1024).toFixed(1);
-    exportStatus.textContent = `完了: ${name} を保存しました（${mb} MB）`;
+    let size;
+    if (writable) {
+      if (!asMp3) {
+        // Rewrite the header now that the data length is known.
+        await writable.write({ type: "write", position: 0, data: buildWavHeader(pcmBytes, channels, sampleRate) });
+      }
+      await writable.close();
+      size = bytesWritten;
+    } else {
+      const blob = asMp3
+        ? new Blob(pieces, { type: "audio/mpeg" })
+        : buildWavFile(pieces, channels, sampleRate);
+      downloadBlob(blob, filename);
+      size = blob.size;
+    }
+
+    const mb = (size / 1024 / 1024).toFixed(1);
+    exportStatus.textContent = destination
+      ? `完了: ${savedName} を保存しました（${mb} MB）`
+      : `完了: ${savedName} をダウンロードしました（${mb} MB）`;
   } catch (err) {
     console.error(err);
+    if (writable) await writable.abort().catch(() => {});
     exportStatus.textContent = `音声ファイルの作成に失敗しました: ${err.message}`;
   } finally {
     setExporting(false);
