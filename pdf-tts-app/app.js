@@ -8,6 +8,13 @@ const pdfStatus = document.getElementById("pdfStatus");
 const textArea = document.getElementById("textArea");
 const clearBtn = document.getElementById("clearBtn");
 
+const engineSelect = document.getElementById("engineSelect");
+const engineStatus = document.getElementById("engineStatus");
+const voicevoxHint = document.getElementById("voicevoxHint");
+const browserVoiceField = document.getElementById("browserVoiceField");
+const voicevoxVoiceField = document.getElementById("voicevoxVoiceField");
+const voicevoxSpeakerSelect = document.getElementById("voicevoxSpeakerSelect");
+
 const voiceSelect = document.getElementById("voiceSelect");
 const rateInput = document.getElementById("rate");
 const pitchInput = document.getElementById("pitch");
@@ -23,11 +30,25 @@ const stopBtn = document.getElementById("stopBtn");
 const playStatus = document.getElementById("playStatus");
 
 const synth = window.speechSynthesis;
+const VOICEVOX_URL = "http://localhost:50021";
+
 let voices = [];
 let chunks = [];
 let chunkIndex = 0;
 let isPaused = false;
 let keepAliveTimer = null;
+
+// VOICEVOX playback state. playbackToken invalidates in-flight synthesis
+// requests when the user stops or restarts, so a late response never
+// resumes audio the user already cancelled.
+let playbackToken = 0;
+let currentAudio = null;
+let synthCache = new Map();
+let voicevoxSpeakersLoaded = false;
+
+function currentEngine() {
+  return engineSelect.value;
+}
 
 // --- PDF extraction ---
 
@@ -111,16 +132,163 @@ if (synth.onvoiceschanged !== undefined) {
   synth.onvoiceschanged = populateVoices;
 }
 
+// --- VOICEVOX ---
+// Talks to a locally running VOICEVOX engine. Its default CORS mode
+// ("localapps") already allows localhost origins, so no extra setup is
+// needed as long as this page is served over http://localhost.
+
+async function loadVoicevoxSpeakers() {
+  engineStatus.textContent = "VOICEVOXに接続中...";
+  voicevoxSpeakerSelect.innerHTML = "";
+
+  let speakers;
+  try {
+    const res = await fetch(`${VOICEVOX_URL}/speakers`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    speakers = await res.json();
+  } catch (err) {
+    voicevoxSpeakersLoaded = false;
+    engineStatus.textContent =
+      "VOICEVOXに接続できませんでした。VOICEVOXを起動してから、エンジンを選び直してください。";
+    return false;
+  }
+
+  for (const speaker of speakers) {
+    for (const style of speaker.styles) {
+      const option = document.createElement("option");
+      option.value = style.id;
+      option.textContent = `${speaker.name}（${style.name}）`;
+      voicevoxSpeakerSelect.appendChild(option);
+    }
+  }
+
+  voicevoxSpeakersLoaded = voicevoxSpeakerSelect.options.length > 0;
+  engineStatus.textContent = voicevoxSpeakersLoaded
+    ? `VOICEVOXに接続しました（${voicevoxSpeakerSelect.options.length}種類の音声）`
+    : "VOICEVOXに音声が見つかりませんでした。";
+  return voicevoxSpeakersLoaded;
+}
+
+function clearSynthCache() {
+  synthCache.clear();
+}
+
+async function synthesizeVoicevox(text) {
+  const speaker = encodeURIComponent(voicevoxSpeakerSelect.value);
+
+  const queryRes = await fetch(
+    `${VOICEVOX_URL}/audio_query?speaker=${speaker}&text=${encodeURIComponent(text)}`,
+    { method: "POST" }
+  );
+  if (!queryRes.ok) throw new Error(`audio_query HTTP ${queryRes.status}`);
+  const query = await queryRes.json();
+
+  query.speedScale = parseFloat(rateInput.value);
+  // The pitch slider is 0-2 centred on 1; VOICEVOX accepts -0.15 to 0.15.
+  const pitchScale = (parseFloat(pitchInput.value) - 1) * 0.15;
+  query.pitchScale = Math.max(-0.15, Math.min(0.15, pitchScale));
+
+  const synthRes = await fetch(`${VOICEVOX_URL}/synthesis?speaker=${speaker}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(query),
+  });
+  if (!synthRes.ok) throw new Error(`synthesis HTTP ${synthRes.status}`);
+  return synthRes.blob();
+}
+
+function getSynthesized(index) {
+  if (!synthCache.has(index)) {
+    synthCache.set(index, synthesizeVoicevox(chunks[index]));
+  }
+  return synthCache.get(index);
+}
+
+async function playVoicevoxChunk(token) {
+  if (token !== playbackToken) return;
+  if (chunkIndex >= chunks.length) {
+    finishSpeaking();
+    return;
+  }
+
+  playStatus.textContent = `音声を生成中... (${chunkIndex + 1} / ${chunks.length})`;
+
+  let blob;
+  try {
+    blob = await getSynthesized(chunkIndex);
+  } catch (err) {
+    if (token !== playbackToken) return;
+    console.error(err);
+    finishSpeaking(`VOICEVOXでの音声生成に失敗しました（${err.message}）。VOICEVOXが起動しているか確認してください。`);
+    return;
+  }
+  if (token !== playbackToken) return;
+
+  // Synthesis is slow enough to hear between chunks, so start the next one
+  // while the current chunk plays.
+  if (chunkIndex + 1 < chunks.length) {
+    getSynthesized(chunkIndex + 1).catch(() => {});
+  }
+
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  audio.volume = parseFloat(volumeInput.value);
+  currentAudio = audio;
+
+  audio.onended = () => {
+    URL.revokeObjectURL(url);
+    if (token !== playbackToken) return;
+    synthCache.delete(chunkIndex);
+    chunkIndex++;
+    playVoicevoxChunk(token);
+  };
+  audio.onerror = () => {
+    URL.revokeObjectURL(url);
+    if (token !== playbackToken) return;
+    finishSpeaking("音声の再生に失敗しました");
+  };
+
+  updatePlayStatus();
+  try {
+    await audio.play();
+  } catch (err) {
+    if (token !== playbackToken) return;
+    console.error(err);
+    finishSpeaking(`再生できませんでした（${err.message}）`);
+  }
+}
+
+engineSelect.addEventListener("change", async () => {
+  stopSpeaking();
+  playStatus.textContent = "";
+  const useVoicevox = currentEngine() === "voicevox";
+  browserVoiceField.hidden = useVoicevox;
+  voicevoxVoiceField.hidden = !useVoicevox;
+  voicevoxHint.hidden = !useVoicevox;
+  clearSynthCache();
+
+  if (useVoicevox) {
+    await loadVoicevoxSpeakers();
+  } else {
+    engineStatus.textContent = "";
+  }
+});
+
+voicevoxSpeakerSelect.addEventListener("change", clearSynthCache);
+
 // --- Slider labels ---
 
 rateInput.addEventListener("input", () => {
   rateValue.textContent = rateInput.value;
+  clearSynthCache();
 });
 pitchInput.addEventListener("input", () => {
   pitchValue.textContent = pitchInput.value;
+  clearSynthCache();
 });
 volumeInput.addEventListener("input", () => {
   volumeValue.textContent = volumeInput.value;
+  if (currentAudio) currentAudio.volume = parseFloat(volumeInput.value);
 });
 
 // --- Text chunking ---
@@ -222,15 +390,27 @@ function finishSpeaking(message) {
   chunks = [];
   chunkIndex = 0;
   isPaused = false;
+  currentAudio = null;
+}
+
+function cancelAudio() {
+  // Bump the token first so any in-flight synthesis resolves into a no-op.
+  playbackToken++;
+  synth.cancel();
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+  }
+  clearSynthCache();
 }
 
 function stopSpeaking() {
-  synth.cancel();
+  cancelAudio();
   finishSpeaking("停止しました");
 }
 
 function setPlayingControls() {
-  startKeepAlive();
+  if (currentEngine() === "browser") startKeepAlive();
   playBtn.disabled = true;
   pauseBtn.disabled = false;
   stopBtn.disabled = false;
@@ -238,7 +418,7 @@ function setPlayingControls() {
 }
 
 function beginPlayback(text) {
-  synth.cancel();
+  cancelAudio();
   chunks = splitIntoChunks(text);
   chunkIndex = 0;
   isPaused = false;
@@ -246,14 +426,30 @@ function beginPlayback(text) {
     playStatus.textContent = "読み上げるテキストがありません";
     return;
   }
+
+  if (currentEngine() === "voicevox") {
+    if (!voicevoxSpeakersLoaded) {
+      chunks = [];
+      playStatus.textContent = "VOICEVOXに接続できていません。VOICEVOXを起動してから、エンジンを選び直してください。";
+      return;
+    }
+    setPlayingControls();
+    playVoicevoxChunk(playbackToken);
+    return;
+  }
+
   speakNextChunk();
   setPlayingControls();
 }
 
 playBtn.addEventListener("click", () => {
   if (isPaused) {
-    synth.resume();
     isPaused = false;
+    if (currentEngine() === "voicevox") {
+      if (currentAudio) currentAudio.play().catch(() => {});
+    } else {
+      synth.resume();
+    }
     setPlayingControls();
     return;
   }
@@ -271,7 +467,11 @@ playFromHereBtn.addEventListener("click", () => {
 });
 
 pauseBtn.addEventListener("click", () => {
-  synth.pause();
+  if (currentEngine() === "voicevox") {
+    if (currentAudio) currentAudio.pause();
+  } else {
+    synth.pause();
+  }
   stopKeepAlive();
   isPaused = true;
   playBtn.disabled = false;
@@ -284,5 +484,5 @@ stopBtn.addEventListener("click", () => {
 });
 
 window.addEventListener("beforeunload", () => {
-  synth.cancel();
+  cancelAudio();
 });

@@ -29,10 +29,29 @@
 
   <section class="panel">
     <h2>2. 読み上げ設定</h2>
-    <div class="controls-grid">
+    <div class="engine-row">
       <label>
+        読み上げエンジン
+        <select id="engineSelect">
+          <option value="browser">ブラウザ標準（無料・すぐ使える）</option>
+          <option value="voicevox">VOICEVOX（無料・自然な日本語／要インストール）</option>
+        </select>
+      </label>
+    </div>
+    <p id="engineStatus" class="status"></p>
+    <p id="voicevoxHint" class="hint" hidden>
+      VOICEVOX（無料）を <a href="https://voicevox.hiroshiba.jp/" target="_blank" rel="noopener">voicevox.hiroshiba.jp</a>
+      からインストールし、起動したままにしてください。音声を配布・公開する場合は
+      「VOICEVOX:キャラクター名」のクレジット表記が必要です。
+    </p>
+    <div class="controls-grid">
+      <label id="browserVoiceField">
         音声
         <select id="voiceSelect"></select>
+      </label>
+      <label id="voicevoxVoiceField" hidden>
+        音声（VOICEVOX）
+        <select id="voicevoxSpeakerSelect"></select>
       </label>
       <label>
         速さ: <span id="rateValue">1.0</span>

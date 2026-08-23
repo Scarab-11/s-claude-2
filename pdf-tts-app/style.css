@@ -92,10 +92,26 @@ textarea#textArea {
   margin: 8px 0 0;
 }
 
+.engine-row {
+  margin-bottom: 4px;
+}
+
+.engine-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: #57606a;
+}
+
 .controls-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+}
+
+.controls-grid label[hidden] {
+  display: none;
 }
 
 .controls-grid label {
