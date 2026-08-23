@@ -36,7 +36,22 @@ Pythonが入っていない場合はその旨のメッセージが表示され�
 | エンジン | 音質 | 準備 | 費用 |
 |---|---|---|---|
 | ブラウザ標準（Web Speech API） | OS内蔵音声。やや機械的 | 不要 | 無料 |
+| ブラウザ標準 + Microsoft Edge | Edgeのニューラル音声。かなり自然 | Edgeで開くだけ（要ネット接続） | 無料 |
 | VOICEVOX | 自然な日本語。声の種類も豊富 | VOICEVOXのインストールが必要 | 無料 |
+
+### Microsoft Edge の高音質音声を使う
+
+Edgeは「Microsoft Nanami Online (Natural)」のようなクラウド上のニューラル音声を持っており、
+これは Web Speech API 経由でも利用できます。**アプリ側の設定は不要**で、Edgeで
+`http://localhost:8000` を開くだけです。
+
+音声の一覧では、高音質な音声（名前に `Natural` / `Neural` を含むもの、およびリモート音声）に
+**【高音質】** を付けて先頭に並べているので、そのまま選べば使えます。見つからない場合は
+その旨がヒントに表示されます。
+
+クラウド音声のためネット接続が必要です。また、Edgeのバージョンによっては `getVoices()` が
+Natural音声を `Microsoft undefined Online (Natural) - undefined` として返す不具合が報告されています。
+その場合はEdgeを最新版に更新してから開き直してください。
 
 ### VOICEVOXを使う
 
@@ -55,7 +70,9 @@ VOICEVOXで生成した音声を配布・公開する場合は、「VOICEVOX:キ
 
 - PDFのテキスト抽出には [PDF.js](https://mozilla.github.io/pdf.js/)（`vendor/pdfjs/` にローカル同梱、CDN不要）を使用しています。
 - ブラウザ標準エンジンでは各ブラウザ/OSに搭載されている `speechSynthesis`（Web Speech API）を使用します。
-  利用できる声の種類（男性・女性など）はOSやブラウザによって異なります。
+  利用できる声の種類（男性・女性など）はOSやブラウザによって異なります。音声一覧は日本語を優先し、
+  さらに高音質な音声（`Natural` / `Neural` を含む名前、または `localService === false` のリモート音声）を
+  先頭に並べ替えて表示します。
 - VOICEVOXエンジンでは、ローカルのVOICEVOXに `/audio_query` → `/synthesis` の順でリクエストして
   WAVを取得し、`Audio` 要素で再生します。合成には時間がかかるため、再生中に次のチャンクを
   先読み合成して間が空かないようにしています。

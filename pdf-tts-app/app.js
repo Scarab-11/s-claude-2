@@ -11,6 +11,7 @@ const clearBtn = document.getElementById("clearBtn");
 const engineSelect = document.getElementById("engineSelect");
 const engineStatus = document.getElementById("engineStatus");
 const voicevoxHint = document.getElementById("voicevoxHint");
+const browserVoiceHint = document.getElementById("browserVoiceHint");
 const browserVoiceField = document.getElementById("browserVoiceField");
 const voicevoxVoiceField = document.getElementById("voicevoxVoiceField");
 const voicevoxSpeakerSelect = document.getElementById("voicevoxSpeakerSelect");
@@ -96,23 +97,36 @@ clearBtn.addEventListener("click", () => {
 
 // --- Voice list ---
 
+// Edge exposes its cloud neural voices as e.g. "Microsoft Nanami Online
+// (Natural) - Japanese (Japan)", which sound far better than the local
+// SAPI voices. Remote voices in general (localService === false) are the
+// cloud-synthesised ones, so treat both as the high-quality tier.
+function isHighQualityVoice(voice) {
+  return /natural|neural/i.test(voice.name) || voice.localService === false;
+}
+
+function isJapaneseVoice(voice) {
+  return voice.lang.toLowerCase().startsWith("ja");
+}
+
 function populateVoices() {
   voices = synth.getVoices();
   const previousValue = voiceSelect.value;
   voiceSelect.innerHTML = "";
 
-  // Prefer Japanese voices first, but list everything.
+  // Japanese before other languages, and within each the high-quality
+  // voices first, so the best choice is the one already selected.
+  const rank = (v) => (isJapaneseVoice(v) ? 0 : 2) + (isHighQualityVoice(v) ? 0 : 1);
   const sorted = [...voices].sort((a, b) => {
-    const aJa = a.lang.startsWith("ja") ? 0 : 1;
-    const bJa = b.lang.startsWith("ja") ? 0 : 1;
-    if (aJa !== bJa) return aJa - bJa;
+    if (rank(a) !== rank(b)) return rank(a) - rank(b);
     return a.name.localeCompare(b.name);
   });
 
   sorted.forEach((voice) => {
     const option = document.createElement("option");
     option.value = voice.name;
-    option.textContent = `${voice.name} (${voice.lang})`;
+    const badge = isHighQualityVoice(voice) ? "【高音質】" : "";
+    option.textContent = `${badge}${voice.name} (${voice.lang})`;
     voiceSelect.appendChild(option);
   });
 
@@ -125,6 +139,15 @@ function populateVoices() {
     option.textContent = "利用可能な音声が見つかりません";
     voiceSelect.appendChild(option);
   }
+
+  updateBrowserVoiceHint(sorted);
+}
+
+function updateBrowserVoiceHint(sorted) {
+  const japaneseHq = sorted.filter((v) => isJapaneseVoice(v) && isHighQualityVoice(v));
+  browserVoiceHint.textContent = japaneseHq.length
+    ? `高音質な日本語音声が ${japaneseHq.length} 件見つかりました（一覧の先頭、【高音質】付き）。`
+    : "高音質な日本語音声が見つかりませんでした。Microsoft Edge で開くと「Online (Natural)」の音声が使える場合があります（ネット接続が必要）。";
 }
 
 populateVoices();
@@ -265,6 +288,7 @@ engineSelect.addEventListener("change", async () => {
   browserVoiceField.hidden = useVoicevox;
   voicevoxVoiceField.hidden = !useVoicevox;
   voicevoxHint.hidden = !useVoicevox;
+  browserVoiceHint.hidden = useVoicevox;
   clearSynthCache();
 
   if (useVoicevox) {
