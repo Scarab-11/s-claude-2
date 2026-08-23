@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF/テキスト 読み上げアプリ</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>PDF / テキスト 読み上げ</h1>
+    <p class="subtitle">PDFやテキストを読み込んで、ブラウザの音声合成で朗読します（無料・API不要）</p>
+  </header>
+
+  <section class="panel">
+    <h2>1. テキストを読み込む</h2>
+    <div class="input-row">
+      <label class="file-label">
+        PDFファイルを選択
+        <input type="file" id="pdfFile" accept="application/pdf">
+      </label>
+      <button id="clearBtn" class="secondary">クリア</button>
+    </div>
+    <p id="pdfStatus" class="status"></p>
+    <textarea id="textArea" placeholder="ここにテキストを貼り付けるか、上でPDFを読み込んでください"></textarea>
+  </section>
+
+  <section class="panel">
+    <h2>2. 読み上げ設定</h2>
+    <div class="controls-grid">
+      <label>
+        音声
+        <select id="voiceSelect"></select>
+      </label>
+      <label>
+        速さ: <span id="rateValue">1.0</span>
+        <input type="range" id="rate" min="0.5" max="2" value="1" step="0.1">
+      </label>
+      <label>
+        音の高さ: <span id="pitchValue">1.0</span>
+        <input type="range" id="pitch" min="0" max="2" value="1" step="0.1">
+      </label>
+      <label>
+        音量: <span id="volumeValue">1.0</span>
+        <input type="range" id="volume" min="0" max="1" value="1" step="0.1">
+      </label>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>3. 再生</h2>
+    <div class="player-controls">
+      <button id="playBtn" class="primary">▶ 再生</button>
+      <button id="pauseBtn" disabled>⏸ 一時停止</button>
+      <button id="stopBtn" disabled>⏹ 停止</button>
+    </div>
+    <p id="playStatus" class="status"></p>
+  </section>
+</div>
+
+<script src="vendor/pdfjs/pdf.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
