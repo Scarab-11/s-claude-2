@@ -17,6 +17,7 @@ const pitchValue = document.getElementById("pitchValue");
 const volumeValue = document.getElementById("volumeValue");
 
 const playBtn = document.getElementById("playBtn");
+const playFromHereBtn = document.getElementById("playFromHereBtn");
 const pauseBtn = document.getElementById("pauseBtn");
 const stopBtn = document.getElementById("stopBtn");
 const playStatus = document.getElementById("playStatus");
@@ -228,32 +229,45 @@ function stopSpeaking() {
   finishSpeaking("停止しました");
 }
 
-playBtn.addEventListener("click", () => {
-  const text = textArea.value.trim();
-  if (!text) {
-    playStatus.textContent = "読み上げるテキストがありません";
-    return;
-  }
-
-  if (isPaused) {
-    synth.resume();
-    isPaused = false;
-  } else {
-    synth.cancel();
-    chunks = splitIntoChunks(text);
-    chunkIndex = 0;
-    if (chunks.length === 0) {
-      playStatus.textContent = "読み上げるテキストがありません";
-      return;
-    }
-    speakNextChunk();
-  }
-
+function setPlayingControls() {
   startKeepAlive();
   playBtn.disabled = true;
   pauseBtn.disabled = false;
   stopBtn.disabled = false;
   updatePlayStatus();
+}
+
+function beginPlayback(text) {
+  synth.cancel();
+  chunks = splitIntoChunks(text);
+  chunkIndex = 0;
+  isPaused = false;
+  if (chunks.length === 0) {
+    playStatus.textContent = "読み上げるテキストがありません";
+    return;
+  }
+  speakNextChunk();
+  setPlayingControls();
+}
+
+playBtn.addEventListener("click", () => {
+  if (isPaused) {
+    synth.resume();
+    isPaused = false;
+    setPlayingControls();
+    return;
+  }
+  beginPlayback(textArea.value.trim());
+});
+
+playFromHereBtn.addEventListener("click", () => {
+  const startPos = textArea.selectionStart || 0;
+  const text = textArea.value.slice(startPos).trim();
+  if (!text) {
+    playStatus.textContent = "読み上げる位置を選択してください（テキスト欄をクリックしてカーソルを置く）";
+    return;
+  }
+  beginPlayback(text);
 });
 
 pauseBtn.addEventListener("click", () => {

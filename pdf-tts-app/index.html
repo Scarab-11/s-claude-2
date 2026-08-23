@@ -24,6 +24,7 @@
     </div>
     <p id="pdfStatus" class="status"></p>
     <textarea id="textArea" placeholder="ここにテキストを貼り付けるか、上でPDFを読み込んでください"></textarea>
+    <p class="hint">読み上げたい箇所をクリックしてカーソルを置く（または範囲選択する）と、「3. 再生」の「▶ ここから再生」でその位置から読み上げられます。</p>
   </section>
 
   <section class="panel">
@@ -52,6 +53,7 @@
     <h2>3. 再生</h2>
     <div class="player-controls">
       <button id="playBtn" class="primary">▶ 再生</button>
+      <button id="playFromHereBtn" class="secondary">▶ ここから再生</button>
       <button id="pauseBtn" disabled>⏸ 一時停止</button>
       <button id="stopBtn" disabled>⏹ 停止</button>
     </div>

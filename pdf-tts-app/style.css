@@ -86,6 +86,12 @@ textarea#textArea {
   font-family: inherit;
 }
 
+.hint {
+  font-size: 0.8rem;
+  color: #57606a;
+  margin: 8px 0 0;
+}
+
 .controls-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
