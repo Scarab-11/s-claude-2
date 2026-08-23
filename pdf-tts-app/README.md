@@ -5,12 +5,25 @@ APIキーや外部サービスへの登録は不要で、追加費用もかか�
 
 ## 使い方
 
+### Windows: バッチファイルで起動（かんたん）
+
+`サーバー起動.bat` をダブルクリックすると、サーバー起動とブラウザでの表示まで自動で行われます。
+Pythonが入っていない場合はその旨のメッセージが表示されるので、
+[python.org](https://www.python.org/downloads/) からインストールしてください
+（インストール時に「Add python.exe to PATH」に必ずチェックを入れてください）。
+
+アプリを終了するときは、開いたウィンドウを閉じてください。
+
+### 手動で起動する場合（Mac / Linux / Windows共通）
+
 1. `index.html` をブラウザで直接開くか、簡易サーバーで配信します。
 
    ```sh
    cd pdf-tts-app
    python3 -m http.server 8000
    ```
+
+   （Windowsのコマンドプロンプトでは `python3` ではなく `python` の場合があります）
 
    その後ブラウザで `http://localhost:8000` を開きます。
 
