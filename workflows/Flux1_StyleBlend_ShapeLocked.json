@@ -1,8 +1,8 @@
 {
   "id": "flux1-styleblend-two-images",
   "revision": 0,
-  "last_node_id": 62,
-  "last_link_id": 152,
+  "last_node_id": 66,
+  "last_link_id": 160,
   "nodes": [
     {
       "id": 34,
@@ -304,7 +304,8 @@
           "links": [
             12,
             141,
-            151
+            151,
+            160
           ]
         }
       ],
@@ -1284,7 +1285,8 @@
           "links": [
             140,
             143,
-            144
+            144,
+            154
           ]
         }
       ],
@@ -1390,7 +1392,7 @@
       "outputs": [],
       "properties": {},
       "widgets_values": [
-        "## プロンプト無しで顔が湧かない\n`Flux1_StyleBlend_TwoImages.json` には形を固定する経路が無い。\n条件が弱いとモデルの事前分布が前に出て、頼んでいない人物の顔が\n山肌などに現れる。プロンプトを空にしても止まらない。\n空は **指定しない** ではなく **事前分布に任せる** だから、\n言葉で消せる問題ではない。\n\nこの版は重ねた画像から深度を取り、それを ControlNet で\n最後まで押さえる。**形が全ステップで固定されるので、\n山肌が顔に化ける余地が無い。** プロンプトは空のままで動く。\n\n```\n形:   Image1 ┐\n              ├ 2枚を重ねる ┬ latent 化 ─────────┐\n      Image2 ┘              └ 前処理（深度）→ 形を固定する ┤\n                                                          ↓\n画風: Image1 → 読み取る → 画風A の強さ ┐                サンプラー\n      Image2 → 読み取る → 画風B の強さ ┴→ 形を固定する ──┘\n```\n\n## 効いているかの確認\n「ControlNet に渡る情報」を見る。**灰色の濃淡であれば正常。**\nここが色付きなら前処理が効いていない。\n\n「重ねた結果（出発点）」の形が、出力にそのまま残っていれば固定できている。\n\n## それでも形が動くとき\n| 変更するノード | 変更内容 |\n|---|---|\n| 「形を固定する（Apply ControlNet）」 | `strength` 1.0 のまま、`end_percent` が 1.0 か確認 |\n| 「denoise ◀ 元の2枚をどれだけ残すか」 | 0.30 → 0.20 |\n| 「Union の制御タイプ」 | `depth` のまま。前処理を変えたらここも合わせる |\n\n## 形の固定を弱めたいとき\n深度で固定すると絵の自由度は下がる。ゆるめたい順に。\n\n| 変更するノード | 変更内容 |\n|---|---|\n| 「形を固定する（Apply ControlNet）」 | `end_percent` 1.0 → 0.7 |\n| 同上 | `strength` 1.0 → 0.7 |\n| 「denoise ◀ 元の2枚をどれだけ残すか」 | 0.30 → 0.45 |\n\n**`end_percent` を下げるほど後半が自由になり、顔が湧く余地が戻る。**\n1.0 のままなら湧かない。\n\n## 混ぜる系統が 2 つある\n| 何を混ぜるか | どのノード | 実体 |\n|---|---|---|\n| **形・構図** | 「2枚を重ねる（Image Blend）◀ 混合比」の `blend_factor` | 画素を実際に重ねる |\n| **画風・色** | 「画風A の強さ」「画風B の強さ」の `strength` | Redux トークン |\n\n`blend_factor` は 0.0 で A のみ、1.0 で B のみ、0.5 で等分。\n重ねた結果は「重ねた結果（出発点）」に出る。\n\n| したいこと | 「画風A の強さ」 | 「画風B の強さ」 |\n|---|---|---|\n| 等分に混ぜる（既定値） | 0.9 | 0.9 |\n| A を主、B を隠し味 | 1.1 | 0.5 |\n| B を主、A を隠し味 | 0.5 | 1.1 |\n\n## プロンプトを書きたいとき\n「プロンプト（空でよい）」は空のままで動く。\n書くなら画材と質感だけ。形は固定済みなので被写体を書く必要は無い。\n\n`oil painting on canvas, visible brush strokes, muted palette`\n\n「ネガティブプロンプト（空でよい）」も空でよい。\n形を固定するノードが positive と negative の両方を要求するので置いてある。\n\n## 解像度\n「width（生成幅）」「height（生成高さ）」を元画像と同じ比率にする。\n正方形なら 1024 x 1024、横長の風景なら 1216 x 832。\n\n## 必要なファイル\n| 種類 | ファイル | 置き場所 |\n|---|---|---|\n| diffusion model | flux1-dev-fp8.safetensors | `models/diffusion_models/` |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l | `models/text_encoders/` |\n| VAE | ae.safetensors | `models/vae/` |\n| style model | flux1-redux-dev.safetensors | `models/style_models/` |\n| clip vision | sigclip_vision_patch14_384.safetensors | `models/clip_vision/` |\n| ControlNet | FLUX.1-dev-Controlnet-Union-Pro-2.0 | `models/controlnet/` |\n\nカスタムノードは `comfyui_controlnet_aux` の 1 つ。前処理の実体はここ。\nControlNet の重みは 1 つしか読まないので、VRAM の増分は 4GB 程度。"
+        "## プロンプト無しで顔が湧かない\n`Flux1_StyleBlend_TwoImages.json` には形を固定する経路が無い。\n条件が弱いとモデルの事前分布が前に出て、頼んでいない人物の顔が\n山肌などに現れる。プロンプトを空にしても止まらない。\n空は **指定しない** ではなく **事前分布に任せる** だから、\n言葉で消せる問題ではない。\n\nこの版は重ねた画像から形を取り、それを ControlNet で最後まで押さえる。\n**形が全ステップで固定されるので、山肌が顔に化ける余地が無い。**\nプロンプトは空のままで動く。\n\n## 2 段を直列にしてある\n```\n形:   Image1 ┐\n              ├ 2枚を重ねる ┬ latent 化 ───────────────┐\n      Image2 ┘              ├ 前処理 1段目（深度）→ 1段目 ┤\n                            └ 前処理 2段目（線）  → 2段目 ┤\n                                                          ↓\n画風: Image1 → 読み取る → 画風A の強さ ┐               サンプラー\n      Image2 → 読み取る → 画風B の強さ ┴→ 1段目 → 2段目 ┘\n```\n\n| 段 | 渡すもの | 得意なこと | 既定 |\n|---|---|---|---|\n| 1段目 | 深度マップ | 立体・奥行き・構図 | 有効 |\n| 2段目 | 線 | 輪郭・細部の位置 | **無効** |\n\n**2段目は既定で無効にしてある。**\n「形を固定する 2段目（Apply ControlNet）◀ Ctrl+B で切替」を選んで\n**Ctrl+B** を押すと有効になる。もう一度押すと戻る。\n\n深度だけで足りているなら 1段目のままでよい。\n輪郭がぼやける・細部が溶けるときに 2段目を足す。\n\n| 症状 | どうするか |\n|---|---|\n| 立体は合うが輪郭がぼやける | 2段目を有効にする |\n| 建物や水平線が歪む | 2段目を有効にして `MLSDdetector` |\n| 線が絵に残って硬い | 2段目の `end_percent` 0.6 → 0.4 |\n| 線が効かない | 2段目の `strength` 0.45 → 0.70 |\n| 線がざらつく | 2段目の `resolution` 1024 → 512 |\n\n## 2段目に渡す線の種類\n「重ねた画像の前処理 2段目（AIO Aux Preprocessor）◀ 種類を選ぶ」の\nプルダウンから選ぶ。\n\n| 選ぶもの | 渡る情報 | 向いている題材 |\n|---|---|---|\n| `HEDPreprocessor` | 柔らかい線 | **既定。** 絵画・風景 |\n| `LineArtPreprocessor` | 線画 | 人物・静物 |\n| `AnimeLineArtPreprocessor` | アニメ線画 | イラスト |\n| `CannyEdgePreprocessor` | 輪郭線 | 硬い。写真から輪郭だけ |\n| `MLSDdetector` | 直線 | 建築・街並み |\n| `none` | 元画像そのまま | **使わない** |\n\n**重ねた画像は境界が曖昧なので、硬い線より柔らかい線が合う。**\n既定を `HEDPreprocessor` にしてあるのはそのため。\n\n種類を変えたら「Union の制御タイプ（2段目）」も合わせる。\nただし Union Pro 2.0 では番号を添えるだけで、実際には何も変わらない\n(`comfy_extras/nodes_controlnet.py:24-33`)。1.0 に戻したときだけ効く。\n\n## 効いているかの確認\n「1段目に渡る情報」と「2段目に渡る情報」を見る。\n**灰色か白黒であれば正常。** 色が付いていたら前処理が効いていない。\n\nどちらもサンプラーを回さなくても更新される。\n**線の出方はここで見比べてから 2段目を有効にする。**\n\n「重ねた結果（出発点）」の形が出力にそのまま残っていれば固定できている。\n\n## それでも形が動くとき\n| 変更するノード | 変更内容 |\n|---|---|\n| 「形を固定する 1段目（Apply ControlNet）」 | `end_percent` が 1.0 か確認 |\n| 「denoise ◀ 元の2枚をどれだけ残すか」 | 0.30 → 0.20 |\n| 「形を固定する 2段目（Apply ControlNet）◀ Ctrl+B で切替」 | 有効にする |\n\n## 形の固定を弱めたいとき\n固定すると絵の自由度は下がる。ゆるめたい順に。\n\n| 変更するノード | 変更内容 |\n|---|---|\n| 「形を固定する 1段目（Apply ControlNet）」 | `end_percent` 1.0 → 0.7 |\n| 同上 | `strength` 1.0 → 0.7 |\n| 「denoise ◀ 元の2枚をどれだけ残すか」 | 0.30 → 0.45 |\n\n**1段目の `end_percent` を下げるほど後半が自由になり、\n顔が湧く余地が戻る。** 1.0 のままなら湧かない。\n2段目の `end_percent` は下げても構わない。形は 1段目が握っている。\n\n## 混ぜる系統が 2 つある\n| 何を混ぜるか | どのノード | 実体 |\n|---|---|---|\n| **形・構図** | 「2枚を重ねる（Image Blend）◀ 混合比」の `blend_factor` | 画素を実際に重ねる |\n| **画風・色** | 「画風A の強さ」「画風B の強さ」の `strength` | Redux トークン |\n\n`blend_factor` は 0.0 で A のみ、1.0 で B のみ、0.5 で等分。\n重ねた結果は「重ねた結果（出発点）」に出る。\n\n| したいこと | 「画風A の強さ」 | 「画風B の強さ」 |\n|---|---|---|\n| 等分に混ぜる（既定値） | 0.9 | 0.9 |\n| A を主、B を隠し味 | 1.1 | 0.5 |\n| B を主、A を隠し味 | 0.5 | 1.1 |\n\n## プロンプトを書きたいとき\n「プロンプト（空でよい）」は空のままで動く。\n書くなら画材と質感だけ。形は固定済みなので被写体を書く必要は無い。\n\n`oil painting on canvas, visible brush strokes, muted palette`\n\n「ネガティブプロンプト（空でよい）」も空でよい。\n形を固定するノードが positive と negative の両方を要求するので置いてある。\n1段目と 2段目で共用している。\n\n## 解像度\n「width（生成幅）」「height（生成高さ）」を元画像と同じ比率にする。\n正方形なら 1024 x 1024、横長の風景なら 1216 x 832。\n\n## 必要なファイル\n| 種類 | ファイル | 置き場所 |\n|---|---|---|\n| diffusion model | flux1-dev-fp8.safetensors | `models/diffusion_models/` |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l | `models/text_encoders/` |\n| VAE | ae.safetensors | `models/vae/` |\n| style model | flux1-redux-dev.safetensors | `models/style_models/` |\n| clip vision | sigclip_vision_patch14_384.safetensors | `models/clip_vision/` |\n| ControlNet | FLUX.1-dev-Controlnet-Union-Pro-2.0 | `models/controlnet/` |\n\nカスタムノードは `comfyui_controlnet_aux` の 1 つ。前処理の実体はここ。\n**ControlNet の重みは 2 段で共用するので、VRAM の増分は 4GB 程度のまま。**"
       ],
       "color": "#432",
       "bgcolor": "#653"
@@ -1409,7 +1411,7 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "重ねた画像の前処理（AIO Aux Preprocessor）◀ 種類を選ぶ",
+      "title": "重ねた画像の前処理 1段目（AIO Aux Preprocessor）◀ 種類を選ぶ",
       "inputs": [
         {
           "name": "image",
@@ -1452,7 +1454,7 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "ControlNet に渡る情報",
+      "title": "1段目に渡る情報",
       "inputs": [
         {
           "name": "images",
@@ -1490,7 +1492,8 @@
           "type": "CONTROL_NET",
           "slot_index": 0,
           "links": [
-            147
+            147,
+            153
           ]
         }
       ],
@@ -1517,7 +1520,7 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "Union の制御タイプ",
+      "title": "Union の制御タイプ（1段目）",
       "inputs": [
         {
           "name": "control_net",
@@ -1599,7 +1602,7 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "形を固定する（Apply ControlNet）",
+      "title": "形を固定する 1段目（Apply ControlNet）",
       "inputs": [
         {
           "name": "positive",
@@ -1634,6 +1637,192 @@
           "type": "CONDITIONING",
           "slot_index": 0,
           "links": [
+            156
+          ]
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "slot_index": 1,
+          "links": [
+            157
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "ControlNetApplyAdvanced"
+      },
+      "widgets_values": [
+        1.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": 63,
+      "type": "SetUnionControlNetType",
+      "pos": [
+        1600,
+        620
+      ],
+      "size": [
+        340,
+        60
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "Union の制御タイプ（2段目）",
+      "inputs": [
+        {
+          "name": "control_net",
+          "type": "CONTROL_NET",
+          "link": 153
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONTROL_NET",
+          "type": "CONTROL_NET",
+          "slot_index": 0,
+          "links": [
+            158
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "SetUnionControlNetType"
+      },
+      "widgets_values": [
+        "canny/lineart/anime_lineart/mlsd"
+      ]
+    },
+    {
+      "id": 64,
+      "type": "AIO_Preprocessor",
+      "pos": [
+        1600,
+        730
+      ],
+      "size": [
+        420,
+        82
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "重ねた画像の前処理 2段目（AIO Aux Preprocessor）◀ 種類を選ぶ",
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 154
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            155,
+            159
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui_controlnet_aux",
+        "aux_id": "Fannovel16/comfyui_controlnet_aux",
+        "Node name for S&R": "AIO_Preprocessor"
+      },
+      "widgets_values": [
+        "HEDPreprocessor",
+        1024
+      ]
+    },
+    {
+      "id": 65,
+      "type": "PreviewImage",
+      "pos": [
+        1600,
+        870
+      ],
+      "size": [
+        280,
+        300
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "title": "2段目に渡る情報",
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 155
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.71",
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 66,
+      "type": "ControlNetApplyAdvanced",
+      "pos": [
+        2060,
+        870
+      ],
+      "size": [
+        300,
+        160
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 4,
+      "title": "形を固定する 2段目（Apply ControlNet）◀ Ctrl+B で切替",
+      "inputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 156
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 157
+        },
+        {
+          "name": "control_net",
+          "type": "CONTROL_NET",
+          "link": 158
+        },
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 159
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 160,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
             152
           ]
         },
@@ -1650,9 +1839,9 @@
         "Node name for S&R": "ControlNetApplyAdvanced"
       },
       "widgets_values": [
-        1.0,
+        0.45,
         0.0,
-        1.0
+        0.6
       ]
     }
   ],
@@ -2019,11 +2208,75 @@
     ],
     [
       152,
-      62,
+      66,
       0,
       22,
       1,
       "CONDITIONING"
+    ],
+    [
+      153,
+      59,
+      0,
+      63,
+      0,
+      "CONTROL_NET"
+    ],
+    [
+      154,
+      54,
+      0,
+      64,
+      0,
+      "IMAGE"
+    ],
+    [
+      155,
+      64,
+      0,
+      65,
+      0,
+      "IMAGE"
+    ],
+    [
+      156,
+      62,
+      0,
+      66,
+      0,
+      "CONDITIONING"
+    ],
+    [
+      157,
+      62,
+      1,
+      66,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      158,
+      63,
+      0,
+      66,
+      2,
+      "CONTROL_NET"
+    ],
+    [
+      159,
+      64,
+      0,
+      66,
+      3,
+      "IMAGE"
+    ],
+    [
+      160,
+      10,
+      0,
+      66,
+      4,
+      "VAE"
     ]
   ],
   "groups": [
@@ -2120,7 +2373,7 @@
     },
     {
       "id": 9,
-      "title": "形を固定する（ControlNet）",
+      "title": "形を固定する 1段目（深度）",
       "bounding": [
         680,
         550,
@@ -2128,6 +2381,19 @@
         660
       ],
       "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 10,
+      "title": "形を固定する 2段目（線・任意）",
+      "bounding": [
+        1580,
+        550,
+        800,
+        660
+      ],
+      "color": "#8A8",
       "font_size": 24,
       "flags": {}
     }
