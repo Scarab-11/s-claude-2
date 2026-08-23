@@ -1005,14 +1005,14 @@
           ]
         }
       ],
-      "title": "プロンプト（画材を書く）",
+      "title": "プロンプト（画材だけを書く）◀ 被写体は書かない",
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.3.44",
         "Node name for S&R": "CLIPTextEncode"
       },
       "widgets_values": [
-        "A portrait of a young woman, head and shoulders, facing the viewer."
+        "oil painting on canvas, visible brush strokes, muted palette, soft natural light"
       ],
       "color": "#232",
       "bgcolor": "#353"
@@ -1262,7 +1262,7 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "2枚を重ねる ◀ 顔の混合比",
+      "title": "2枚を重ねる（Image Blend）◀ 混合比",
       "inputs": [
         {
           "name": "image1",
@@ -1382,12 +1382,12 @@
       "flags": {},
       "order": 0,
       "mode": 0,
-      "title": "使い方 — 2枚の画風を混ぜる",
+      "title": "使い方 — 2枚を混ぜる",
       "inputs": [],
       "outputs": [],
       "properties": {},
       "widgets_values": [
-        "## 混ぜる系統が 2 つある\n| 何を混ぜるか | どのノード | 実体 |\n|---|---|---|\n| **顔・構図** | 「2枚を重ねる ◀ 顔の混合比」の `blend_factor` | 画素を実際に重ねる |\n| **画風・色** | 「画風A の強さ」「画風B の強さ」の `strength` | Redux トークン |\n\n## Redux だけでは顔は保てない\nRedux は画像を 384x384 のトークン列に潰すので、個人を特定する情報が\n落ちる。空の latent から始める text-to-image では画素側の手がかりも\n無いため、顔は毎回ゼロから生成される。\nそこで 2 枚を実際に重ねた画像を出発点に据え、\n「denoise ◀ 元の2枚をどれだけ残すか」でどれだけ残すかを決める。\n\n| denoise | 結果 |\n|---|---|\n| 0.30 | ほぼ重ねたまま。ズレだけが整理される |\n| 0.40 | 元の 2 枚の面影が強く残る |\n| 0.60 | 既定値。顔立ちを引き継ぎつつ絵として整う |\n| 0.80 | かなり描き変わる |\n| 1.00 | 出発点が消えて完全な text-to-image。顔は別人になる |\n\n**顔が全然違う人になるときは、まず denoise を下げる。**\n\n「2枚を重ねる ◀ 顔の混合比」の `blend_factor` は 0.0 で A のみ、\n1.0 で B のみ、0.5 で等分。重ねた結果は「重ねた結果（出発点）」に出る。\n\n## 出力が硬い・AI っぽいとき\n重ねた画像より最終出力のほうが悪く見えるのは、サンプラーが絵を\n描き直しているから。重なりの曖昧さは真っ先に潰される。\n\n| 変更するノード | 変更内容 |\n|---|---|\n| 「denoise ◀ 元の2枚をどれだけ残すか」 | 0.60 → 0.35 |\n| 「FluxGuidance ◀ 絵の磨き具合」 | 3.5 → 2.0〜2.5 |\n| 「プロンプト（画材を書く）」 | 人物ではなく画材と質感だけを書く |\n\nプロンプト例:\n`watercolor portrait on rough paper, loose wet-on-wet washes,`\n`visible paper texture, muted palette, unfinished edges, soft focus`\n\n人物の描写は書かない。顔と構図は「2枚を重ねる ◀ 顔の混合比」が\n担当しているので、プロンプトは画材と質感だけを指定する。\n\n## 画風の混合比の目安\n| したいこと | 「画風A の強さ」 | 「画風B の強さ」 |\n|---|---|---|\n| 等分に混ぜる（既定値） | 0.6 | 0.6 |\n| A を主、B を隠し味 | 0.8 | 0.3 |\n| B を主、A を隠し味 | 0.3 | 0.8 |\n| 両方もっと強く | 0.9 | 0.9 |\n| プロンプトを効かせたい | 0.4 | 0.4 |\n\n`strength_type` は **multiply** のまま。Redux トークンを定数倍するので\n比がそのまま効く。`attn_bias` は別系統で、混合比の調整には向かない。\n\n片方だけの効果を確認したいときは、その強さのノードを選んで\n**Ctrl+B** でバイパスすると素通しになる。\n\n## crop を none にしてある\n「Image1 を画風として読み取る」「Image2 を画風として読み取る」の `crop` は\n**none**。`center` だと中央を正方形に切り取るため画面端の色が入らない。\n色彩を混ぜる用途では none のほうが元画像の色を拾う。\n\n## 解像度\n「width（生成幅）」「height（生成高さ）」の 2 つだけ変えれば、\nサイズ合わせと ModelSamplingFlux の両方に伝わる。\n参照画像のアスペクト比に合わせるほうが結果が安定する。\n\n## 必要なファイル\n| 種類 | ファイル |\n|---|---|\n| diffusion model | flux1-dev-fp8.safetensors |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l |\n| VAE | ae.safetensors |\n| style model | flux1-redux-dev.safetensors |\n| clip vision | sigclip_vision_patch14_384.safetensors |\n\nカスタムノード不要。ControlNet も不要。\n構図を指定する経路が無いので、レイアウトはプロンプトと seed 任せになる。"
+        "## 顔専用ではない\n人物・風景・静物、何でも使える。\n**ただしプロンプトに被写体を書くと、そちらが優先される。**\n\n山の画像 2 枚を入れたのに顔が出る、という事故はこれが原因。\n「プロンプト（画材だけを書く）◀ 被写体は書かない」に\n`a portrait of ...` と書いてあると、出発点が山でも\nモデルは山肌に顔を描こうとする。\n\n**プロンプトには画材と質感だけを書く。**\n被写体は「2枚を重ねる（Image Blend）◀ 混合比」が決める。\n\n既定値:\n`oil painting on canvas, visible brush strokes,`\n`muted palette, soft natural light`\n\nどうしても被写体を書きたいときは、重ねた画像に写っているものと\n一致させる。風景なら `a mountain landscape`、人物なら `a portrait`。\n食い違うと必ず破綻する。\n\n## 混ぜる系統が 2 つある\n| 何を混ぜるか | どのノード | 実体 |\n|---|---|---|\n| **形・構図** | 「2枚を重ねる（Image Blend）◀ 混合比」の `blend_factor` | 画素を実際に重ねる |\n| **画風・色** | 「画風A の強さ」「画風B の強さ」の `strength` | Redux トークン |\n\n## Redux だけでは形は保てない\nRedux は画像を 384x384 のトークン列に潰すので、細かい形の情報が\n落ちる。空の latent から始める text-to-image では画素側の手がかりも\n無いため、絵は毎回ゼロから生成される。\nそこで 2 枚を実際に重ねた画像を出発点に据え、\n「denoise ◀ 元の2枚をどれだけ残すか」でどれだけ残すかを決める。\n\n| denoise | 結果 |\n|---|---|\n| 0.30 | ほぼ重ねたまま。ズレだけが整理される |\n| 0.40 | 元の 2 枚の面影が強く残る |\n| 0.60 | 既定値。形を引き継ぎつつ絵として整う |\n| 0.80 | かなり描き変わる |\n| 1.00 | 出発点が消えて完全な text-to-image。元の 2 枚は形として残らない |\n\n**元の絵と違うものが出るときは、まず denoise を下げる。**\n\n「2枚を重ねる（Image Blend）◀ 混合比」の `blend_factor` は 0.0 で A のみ、\n1.0 で B のみ、0.5 で等分。重ねた結果は「重ねた結果（出発点）」に出る。\n\n## 出力が硬い・AI っぽいとき\n重ねた画像より最終出力のほうが悪く見えるのは、サンプラーが絵を\n描き直しているから。重なりの曖昧さは真っ先に潰される。\n\n| 変更するノード | 変更内容 |\n|---|---|\n| 「denoise ◀ 元の2枚をどれだけ残すか」 | 0.60 → 0.35 |\n| 「FluxGuidance ◀ 絵の磨き具合」 | 3.5 → 2.0〜2.5 |\n| 「プロンプト（画材だけを書く）◀ 被写体は書かない」 | 画材と質感だけにする |\n\nプロンプト例:\n`watercolor on rough paper, loose wet-on-wet washes,`\n`visible paper texture, muted palette, unfinished edges, soft focus`\n\n## 画風の混合比の目安\n| したいこと | 「画風A の強さ」 | 「画風B の強さ」 |\n|---|---|---|\n| 等分に混ぜる（既定値） | 0.6 | 0.6 |\n| A を主、B を隠し味 | 0.8 | 0.3 |\n| B を主、A を隠し味 | 0.3 | 0.8 |\n| 両方もっと強く | 0.9 | 0.9 |\n| プロンプトを効かせたい | 0.4 | 0.4 |\n\n`strength_type` は **multiply** のまま。Redux トークンを定数倍するので\n比がそのまま効く。`attn_bias` は別系統で、混合比の調整には向かない。\n\n片方だけの効果を確認したいときは、その強さのノードを選んで\n**Ctrl+B** でバイパスすると素通しになる。\n\n## crop を none にしてある\n「Image1 を画風として読み取る」「Image2 を画風として読み取る」の `crop` は\n**none**。`center` だと中央を正方形に切り取るため画面端の色が入らない。\n色彩を混ぜる用途では none のほうが元画像の色を拾う。\n\n## 解像度\n「width（生成幅）」「height（生成高さ）」の 2 つだけ変えれば、\nサイズ合わせと ModelSamplingFlux の両方に伝わる。\n参照画像のアスペクト比に合わせるほうが結果が安定する。\n横長の風景なら 1216 x 832 のように入れ替える。\n\n## 必要なファイル\n| 種類 | ファイル |\n|---|---|\n| diffusion model | flux1-dev-fp8.safetensors |\n| text encoder | t5xxl_fp8_e4m3fn_scaled + clip_l |\n| VAE | ae.safetensors |\n| style model | flux1-redux-dev.safetensors |\n| clip vision | sigclip_vision_patch14_384.safetensors |\n\nカスタムノード不要。ControlNet も不要。\n構図を指定する経路が無いので、レイアウトは重ねた画像と seed 任せになる。"
       ],
       "color": "#432",
       "bgcolor": "#653"

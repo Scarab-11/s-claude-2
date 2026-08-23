@@ -5,7 +5,7 @@
 | ファイル | 内容 |
 |---|---|
 | `Flux1_StyleRef_x_ControlNet.json` | **推奨。** FLUX.1-dev 版。Image1 の画風 × Image2 の構図。8GB VRAM 向け |
-| `Flux1_StyleBlend_TwoImages.json` | FLUX.1-dev 版。**2枚の画風を融合**させる（構図制御なし）。8GB VRAM 向け |
+| `Flux1_StyleBlend_TwoImages.json` | FLUX.1-dev 版。**2枚の画風を融合**させる（構図制御なし）。人物にも風景にも使える。8GB VRAM 向け |
 | `Flux1_FaceSwap_StyleFromImage1.json` | FLUX.1-dev 版。**Image1 の画風のまま顔だけ Image2 に差し替える**。8GB VRAM 向け |
 | `Flux1_Repaint_Image2_in_Image1Style.json` | FLUX.1-dev 版。**Image1 の画風で Image2 を丸ごと描き直す**。位置合わせ不要。8GB VRAM 向け |
 | `Flux2Klein_FaceSwap_StyleFromImage1.json` | FLUX.2 Klein 9B + Best Face Swap LoRA。**顔は Image2、画風は Image1**。マスク不要 |
@@ -351,15 +351,34 @@ def patched_forward_orig(
 
 構図制御は使わず、**読み込んだ 2 枚を混ぜて**出力する。
 
+### 顔専用ではない。ただしプロンプトが被写体を決める
+
+人物・風景・静物、何でも使える。
+**ただしプロンプトに被写体を書くと、重ねた画像より優先される。**
+
+山の画像 2 枚を入れたのに出力の山肌に顔が現れる、という事故はこれが原因だった。
+「プロンプト（画材だけを書く）◀ 被写体は書かない」の既定値が
+`A portrait of a young woman, head and shoulders, facing the viewer.` のままで、
+`denoise` `0.60` の出発点が山でも、モデルは「肖像画を描け」という指示に従っていた。
+
+既定値を被写体の無い文に置き換えてある。
+
+```
+oil painting on canvas, visible brush strokes, muted palette, soft natural light
+```
+
+被写体を書きたいときは、重ねた画像に写っているものと一致させる。
+風景なら `a mountain landscape`、人物なら `a portrait`。食い違うと必ず破綻する。
+
 混ぜる系統が 2 つあり、役割が違う。
 
 | 何を混ぜるか | どのノード | 実体 |
 |---|---|---|
-| **顔・構図** | 「2枚を重ねる ◀ 顔の混合比」の `blend_factor` | 画素を実際に重ねる |
+| **形・構図** | 「2枚を重ねる（Image Blend）◀ 混合比」の `blend_factor` | 画素を実際に重ねる |
 | **画風・色** | 「画風A の強さ」「画風B の強さ」の `strength` | Redux トークン |
 
 ```
-顔:   Image1 → 画風A を生成解像度に合わせる ┐
+形:   Image1 → 画風A を生成解像度に合わせる ┐
                                             ├ 2枚を重ねる → latent 化 → サンプラー
       Image2 → 画風B を生成解像度に合わせる ┘        └→ 重ねた結果（出発点）
 
@@ -367,12 +386,12 @@ def patched_forward_orig(
       Image2 → 画風として読み取る → 画風B の強さ ┴→ ガイダンス
 ```
 
-### Redux だけでは顔は保てない
+### Redux だけでは形は保てない
 
-Redux トークンを 2 系統並べれば画風は混ざるが、**顔の同一性は再現されない**。
-Redux は画像を 384×384 のトークン列に潰すので、個人を特定する情報が落ちる。
+Redux トークンを 2 系統並べれば画風は混ざるが、**元の形は再現されない**。
+Redux は画像を 384×384 のトークン列に潰すので、細かい形の情報が落ちる。
 空の latent から始める text-to-image では画素側の手がかりも無いため、
-出力の顔は毎回ゼロから生成される。
+出力は毎回ゼロから生成される。
 
 そこで 2 枚を実際に重ねた画像を出発点に据え、
 「denoise ◀ 元の2枚をどれだけ残すか」でどれだけ残すかを決める構成にしてある。
@@ -381,18 +400,19 @@ Redux は画像を 384×384 のトークン列に潰すので、個人を特定�
 |---|---|
 | `0.30` | ほぼ重ねたまま。ズレだけが整理される |
 | `0.40` | 元の 2 枚の面影が強く残る |
-| `0.60` | 既定値。顔立ちを引き継ぎつつ絵として整う |
+| `0.60` | 既定値。形を引き継ぎつつ絵として整う |
 | `0.80` | かなり描き変わる |
-| `1.00` | 出発点が消えて完全な text-to-image。顔は別人になる |
+| `1.00` | 出発点が消えて完全な text-to-image。元の 2 枚は形として残らない |
 
 `denoise` が `1.00` のとき出発点が消えるのは、flow-matching の `noise_scaling` が
 `sigma * noise + (1 - sigma) * latent` で、`denoise=1.0` では `sigma=1.0` となり
 latent 項の係数が 0 になるため。空 latent のノードは不要なので削除してある。
 
-**顔が全然違う人になるときは、まず `denoise` を下げる。**
+**元の絵と違うものが出るときは、まず `denoise` を下げる。**
 
-「2枚を重ねる ◀ 顔の混合比」の `blend_factor` は `0.0` で A のみ、`1.0` で B のみ、
-`0.5` で等分。重ねた結果は「重ねた結果（出発点）」に出るので、見ながら決められる。
+「2枚を重ねる（Image Blend）◀ 混合比」の `blend_factor` は `0.0` で A のみ、
+`1.0` で B のみ、`0.5` で等分。
+重ねた結果は「重ねた結果（出発点）」に出るので、見ながら決められる。
 
 ### 出力が硬い・AI っぽいとき
 
@@ -403,16 +423,17 @@ latent 項の係数が 0 になるため。空 latent のノードは不要な�
 |---|---|
 | 「denoise ◀ 元の2枚をどれだけ残すか」 | `0.60` → `0.35` |
 | 「FluxGuidance ◀ 絵の磨き具合」 | `3.5` → `2.0`〜`2.5` |
-| 「プロンプト（画材を書く）」 | 人物ではなく画材と質感だけを書く |
+| 「プロンプト（画材だけを書く）◀ 被写体は書かない」 | 画材と質感だけを書く |
 
 プロンプト例:
 
 ```
-watercolor portrait on rough paper, loose wet-on-wet washes,
+watercolor on rough paper, loose wet-on-wet washes,
 visible paper texture, muted palette, unfinished edges, soft focus
 ```
 
-人物の描写は書かない。顔と構図は「2枚を重ねる ◀ 顔の混合比」が担当しているので、
+被写体の描写は書かない。形と構図は
+「2枚を重ねる（Image Blend）◀ 混合比」が担当しているので、
 プロンプトは画材と質感だけを指定する。
 
 ### なぜ比が strength で決まるのか
@@ -457,7 +478,7 @@ cond *= strength
 
 「width（生成幅）」「height（生成高さ）」は `832 × 1216`。
 テンプレート既定の `1024 × 1024` のままだと縦長の参照画像が正方形に詰め込まれ、
-構図ごと作り直されて顔も変わる。
+構図ごと作り直される。横長の風景を入れるときは `1216 × 832` に入れ替える。
 
 ### 必要なもの
 
