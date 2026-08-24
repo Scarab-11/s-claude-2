@@ -36,7 +36,9 @@ start "" cmd /c "timeout /t 2 >nul && start microsoft-edge:http://localhost:8000
 
 :serve
 echo.
-%PYCMD% -m http.server 8000
+rem server.py disables browser caching for the app files, so an updated
+rem app.js is never hidden behind a stale copy after a git pull.
+%PYCMD% server.py 8000
 
 echo.
 echo サーバーが終了しました。
