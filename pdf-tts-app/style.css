@@ -92,6 +92,15 @@ textarea#textArea {
   margin: 8px 0 0;
 }
 
+/* Shown while a file is being dragged over the page, so it is clear that
+   dropping it here will load it. */
+body.dragging textarea#textArea {
+  border-color: #1f6feb;
+  outline: 2px dashed #1f6feb;
+  outline-offset: 2px;
+  background: #f2f7ff;
+}
+
 .inline-field {
   display: flex;
   align-items: center;

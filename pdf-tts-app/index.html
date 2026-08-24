@@ -10,20 +10,37 @@
 <div class="app">
   <header>
     <h1>PDF / テキスト 読み上げ</h1>
-    <p class="subtitle">PDFやテキストを読み込んで、ブラウザの音声合成で朗読します（無料・API不要）</p>
+    <p class="subtitle">PDF・テキスト・画像を読み込んで朗読します（無料・API不要）</p>
   </header>
 
   <section class="panel">
     <h2>1. テキストを読み込む</h2>
     <div class="input-row">
       <label class="file-label">
-        PDFファイルを選択
-        <input type="file" id="pdfFile" accept="application/pdf">
+        PDF / 画像ファイルを選択
+        <input type="file" id="pdfFile" accept="application/pdf,image/*" multiple>
       </label>
+      <label class="inline-field">
+        画像の文字認識
+        <select id="ocrLang">
+          <option value="jpn">日本語（横書き）</option>
+          <option value="jpn_vert">日本語（縦書き）</option>
+          <option value="jpn+eng">日本語＋英語</option>
+          <option value="eng">英語</option>
+        </select>
+      </label>
+      <button id="ocrCancelBtn" class="secondary" disabled>中止</button>
       <button id="clearBtn" class="secondary">クリア</button>
     </div>
     <p id="pdfStatus" class="status"></p>
-    <textarea id="textArea" placeholder="ここにテキストを貼り付けるか、上でPDFを読み込んでください"></textarea>
+    <textarea id="textArea" placeholder="ここにテキストを貼り付けるか、上でPDFや画像を読み込んでください"></textarea>
+    <p class="hint">
+      スクリーンショットを保存したPDFのような<strong>画像だけのPDF</strong>や画像ファイル（PNG / JPEGなど）は、
+      文字データを持っていないため、自動で文字認識（OCR）して文字を取り出します。画像は
+      <strong>貼り付け（Ctrl+V）</strong>やドラッグ＆ドロップでも読み込めます
+      （その場合は今あるテキストの続きに追加されます）。
+      OCRは初回だけ読み取り用データの準備に十数秒かかります。
+    </p>
     <p class="hint">読み上げたい箇所をクリックしてカーソルを置く（または範囲選択する）と、「3. 再生」の「▶ ここから再生」でその位置から読み上げられます。</p>
   </section>
 
@@ -106,6 +123,7 @@
 </div>
 
 <script src="vendor/pdfjs/pdf.min.js"></script>
+<script src="vendor/tesseract/tesseract.min.js"></script>
 <script src="vendor/lamejs/lame.min.js"></script>
 <script src="app.js"></script>
 </body>
