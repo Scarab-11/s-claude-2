@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 実行結果（キャプチャ画像と PDF）
+capture/
+*.pdf
+preview.png
