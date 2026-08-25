@@ -8,7 +8,13 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from . import __version__, pdfbuild, winput
-from .config import Profile, ProfileStore, Region
+from .config import (
+    Profile,
+    ProfileStore,
+    Region,
+    next_available_dir,
+    next_available_path,
+)
 from .engine import CaptureError, Capturer
 
 EPILOG = """\
@@ -17,6 +23,7 @@ EPILOG = """\
   s2pdf preview                    いま選んでいる範囲を 1 枚だけ撮って確認
   s2pdf run --pages 120 --key right   120 ページ撮る
   s2pdf run --pdf book.pdf         撮り終えたらそのまま PDF にする
+  s2pdf run --out-dir book2 --pdf book2.pdf   2 冊目は別のフォルダに分ける
   s2pdf shot --index 37            37 ページ目だけ撮り直す
   s2pdf build capture -o out.pdf   既にある画像フォルダから PDF を作る
 """
@@ -95,6 +102,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--resume", action="store_true", help="既にある画像の続きから撮る")
     p_run.add_argument("--pdf", metavar="ファイル", help="撮り終えたら PDF にまとめる")
     p_run.add_argument("--save", action="store_true", help="今回の指定をプロファイルに保存する")
+    p_run.add_argument(
+        "--on-existing",
+        choices=["stop", "new", "clear", "append"],
+        default="stop",
+        help=(
+            "保存先に前回の画像が残っていたときの動作。"
+            "stop=中止（既定） / new=連番の別フォルダにする / "
+            "clear=削除してから撮る / append=そのまま追加する"
+        ),
+    )
 
     p_shot = sub.add_parser("shot", help="1 枚だけ撮る（失敗ページの撮り直し）")
     _add_profile_arg(p_shot)
@@ -198,8 +215,48 @@ def cmd_preview(args: argparse.Namespace, store: ProfileStore) -> int:
     return 0
 
 
+def _handle_existing_images(args: argparse.Namespace, profile: Profile) -> bool:
+    """保存先に前回の画像が残っていないか確かめる。続けてよければ True。"""
+    if args.resume:
+        return True
+    existing = pdfbuild.collect_images(profile.output_path())
+    if not existing:
+        return True
+
+    directory = profile.output_path()
+    if args.on_existing == "stop":
+        _echo(f"{directory} には既に {len(existing)} 枚の画像があります。")
+        _echo("そのまま撮ると前回の分と混ざります。次のいずれかを指定してください:")
+        _echo("  --on-existing new     連番の別フォルダに保存する")
+        _echo("  --on-existing clear   今ある画像を削除してから撮る")
+        _echo("  --on-existing append  前回の続きとして追加する")
+        _echo("  --out-dir 別のフォルダ   保存先を自分で指定する")
+        return False
+
+    if args.on_existing == "clear":
+        for path in existing:
+            path.unlink()
+        _echo(f"{len(existing)} 枚の画像を削除しました。")
+        return True
+
+    if args.on_existing == "new":
+        new_dir = next_available_dir(directory)
+        profile.output_dir = str(new_dir)
+        _echo(f"保存先を {new_dir} に変えました。")
+        if args.pdf:
+            new_pdf = next_available_path(Path(args.pdf).expanduser())
+            if str(new_pdf) != args.pdf:
+                _echo(f"PDF の出力先を {new_pdf} に変えました。")
+            args.pdf = str(new_pdf)
+        return True
+
+    return True  # append
+
+
 def cmd_run(args: argparse.Namespace, store: ProfileStore) -> int:
     profile = _apply_overrides(_load_profile(store, args.profile), args)
+    if not _handle_existing_images(args, profile):
+        return 1
     if args.save:
         store.save(profile)
         _echo(f"設定をプロファイル '{profile.name}' に保存しました。")

@@ -28,6 +28,19 @@ def test_collect_images_skips_non_images(tmp_path):
     assert len(pdfbuild.collect_images(tmp_path)) == 2
 
 
+def test_collect_images_skips_working_files(tmp_path):
+    _write_pages(tmp_path, 2)
+    Image.new("RGB", (4, 4)).save(tmp_path / "_preview.png")
+    assert [p.name for p in pdfbuild.collect_images(tmp_path)] == [
+        "page_0001.png",
+        "page_0002.png",
+    ]
+
+
+def test_collect_images_handles_missing_directory(tmp_path):
+    assert pdfbuild.collect_images(tmp_path / "まだ無い") == []
+
+
 def test_build_pdf_creates_file(tmp_path):
     images = _write_pages(tmp_path / "capture", 3)
     output = tmp_path / "out" / "book.pdf"

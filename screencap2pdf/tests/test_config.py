@@ -1,6 +1,37 @@
 import pytest
 
-from s2pdf.config import Profile, ProfileStore, Region
+from s2pdf.config import (
+    Profile,
+    ProfileStore,
+    Region,
+    next_available_dir,
+    next_available_path,
+)
+
+
+def test_next_available_dir_uses_the_name_when_free(tmp_path):
+    assert next_available_dir(tmp_path / "capture") == tmp_path / "capture"
+
+
+def test_next_available_dir_reuses_an_empty_folder(tmp_path):
+    (tmp_path / "capture").mkdir()
+    assert next_available_dir(tmp_path / "capture") == tmp_path / "capture"
+
+
+def test_next_available_dir_counts_up_past_used_folders(tmp_path):
+    for name in ("capture", "capture_2"):
+        directory = tmp_path / name
+        directory.mkdir()
+        (directory / "page_0001.png").write_bytes(b"x")
+    assert next_available_dir(tmp_path / "capture") == tmp_path / "capture_3"
+
+
+def test_next_available_path_counts_up(tmp_path):
+    assert next_available_path(tmp_path / "book.pdf") == tmp_path / "book.pdf"
+    (tmp_path / "book.pdf").write_bytes(b"x")
+    assert next_available_path(tmp_path / "book.pdf") == tmp_path / "book_2.pdf"
+    (tmp_path / "book_2.pdf").write_bytes(b"x")
+    assert next_available_path(tmp_path / "book.pdf") == tmp_path / "book_3.pdf"
 
 
 def test_region_parse_accepts_commas_and_spaces():

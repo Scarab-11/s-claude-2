@@ -108,6 +108,91 @@ def test_run_without_region_reports_error(capsys):
     assert "キャプチャ範囲" in capsys.readouterr().err
 
 
+def _existing_capture(tmp_path, count=3):
+    directory = tmp_path / "capture"
+    directory.mkdir()
+    for i in range(1, count + 1):
+        Image.new("RGB", (20, 20), (i * 40, 0, 0)).save(directory / f"page_{i:04d}.png")
+    return directory
+
+
+def _run_args(tmp_path, *extra):
+    return cli.build_parser().parse_args(
+        ["run", "--out-dir", str(tmp_path / "capture"), *extra]
+    )
+
+
+def test_existing_images_stop_the_run_by_default(tmp_path, capsys):
+    _existing_capture(tmp_path)
+    args = _run_args(tmp_path)
+    profile = cli._apply_overrides(Profile(region=Region(0, 0, 10, 10)), args)
+
+    assert cli._handle_existing_images(args, profile) is False
+    out = capsys.readouterr().out
+    assert "既に 3 枚" in out
+    assert "--on-existing new" in out
+
+
+def test_on_existing_new_moves_to_a_fresh_folder(tmp_path, capsys):
+    _existing_capture(tmp_path)
+    args = _run_args(tmp_path, "--on-existing", "new")
+    args.pdf = None
+    profile = cli._apply_overrides(Profile(region=Region(0, 0, 10, 10)), args)
+
+    assert cli._handle_existing_images(args, profile) is True
+    assert profile.output_dir == str(tmp_path / "capture_2")
+    assert "capture_2" in capsys.readouterr().out
+
+
+def test_on_existing_new_also_renames_the_pdf(tmp_path):
+    _existing_capture(tmp_path)
+    pdf = tmp_path / "book.pdf"
+    pdf.write_bytes(b"%PDF-old")
+    args = _run_args(tmp_path, "--on-existing", "new", "--pdf", str(pdf))
+    profile = cli._apply_overrides(Profile(region=Region(0, 0, 10, 10)), args)
+
+    cli._handle_existing_images(args, profile)
+
+    assert args.pdf == str(tmp_path / "book_2.pdf")
+    assert pdf.read_bytes() == b"%PDF-old"  # 前回の PDF は残る
+
+
+def test_on_existing_clear_removes_the_old_images(tmp_path):
+    directory = _existing_capture(tmp_path)
+    args = _run_args(tmp_path, "--on-existing", "clear")
+    profile = cli._apply_overrides(Profile(region=Region(0, 0, 10, 10)), args)
+
+    assert cli._handle_existing_images(args, profile) is True
+    assert list(directory.glob("*.png")) == []
+
+
+def test_on_existing_append_keeps_everything(tmp_path):
+    directory = _existing_capture(tmp_path)
+    args = _run_args(tmp_path, "--on-existing", "append")
+    profile = cli._apply_overrides(Profile(region=Region(0, 0, 10, 10)), args)
+
+    assert cli._handle_existing_images(args, profile) is True
+    assert len(list(directory.glob("*.png"))) == 3
+    assert profile.output_dir == str(directory)
+
+
+def test_resume_is_not_treated_as_a_collision(tmp_path):
+    _existing_capture(tmp_path)
+    args = _run_args(tmp_path, "--resume")
+    profile = cli._apply_overrides(Profile(region=Region(0, 0, 10, 10)), args)
+
+    assert cli._handle_existing_images(args, profile) is True
+    assert profile.output_dir == str(tmp_path / "capture")
+
+
+def test_empty_folder_is_not_a_collision(tmp_path):
+    (tmp_path / "capture").mkdir()
+    args = _run_args(tmp_path)
+    profile = cli._apply_overrides(Profile(region=Region(0, 0, 10, 10)), args)
+
+    assert cli._handle_existing_images(args, profile) is True
+
+
 def test_doctor_reports_environment(capsys):
     from s2pdf import deps
 

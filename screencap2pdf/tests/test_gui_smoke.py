@@ -130,6 +130,76 @@ def test_gui_form_round_trip(app, tmp_path):
     assert rebuilt.max_width == 900
 
 
+def _fill_capture_folder(directory, count=3):
+    directory.mkdir(parents=True, exist_ok=True)
+    for i in range(1, count + 1):
+        Image.new("RGB", (20, 20), (i * 40, 0, 0)).save(directory / f"page_{i:04d}.png")
+    return directory
+
+
+def _prepare_second_run(app, tmp_path, choice):
+    """1 回目の画像がある状態で 2 回目を始めようとしたときの流れ。"""
+    directory = _fill_capture_folder(tmp_path / "capture")
+    app._region = Region(0, 0, 80, 100)
+    app.var_outdir.set(str(directory))
+    app.var_pdf.set(str(tmp_path / "book.pdf"))
+    app.var_resume.set(False)
+    app._ask_about_existing = lambda *_a, **_k: choice
+    return directory, app._resolve_output_collision(app._build_profile())
+
+
+def test_second_run_can_go_to_a_new_folder(app, tmp_path):
+    directory, profile = _prepare_second_run(app, tmp_path, "new")
+
+    assert profile is not None
+    assert profile.output_dir == str(tmp_path / "capture_2")
+    assert len(list(directory.glob("*.png"))) == 3  # 1 回目はそのまま残る
+    assert app.var_pdf.get() == str(tmp_path / "book.pdf")  # まだ PDF が無いので変えない
+
+
+def test_second_run_renames_the_pdf_when_it_exists(app, tmp_path):
+    (tmp_path / "book.pdf").write_bytes(b"%PDF-old")
+    _directory, profile = _prepare_second_run(app, tmp_path, "new")
+
+    assert profile is not None
+    assert app.var_pdf.get() == str(tmp_path / "book_2.pdf")
+
+
+def test_second_run_can_clear_the_folder(app, tmp_path):
+    directory, profile = _prepare_second_run(app, tmp_path, "clear")
+
+    assert profile is not None
+    assert profile.output_dir == str(directory)
+    assert list(directory.glob("*.png")) == []
+
+
+def test_second_run_can_append(app, tmp_path):
+    directory, profile = _prepare_second_run(app, tmp_path, "append")
+
+    assert profile is not None
+    assert profile.output_dir == str(directory)
+    assert len(list(directory.glob("*.png"))) == 3
+
+
+def test_second_run_can_be_cancelled(app, tmp_path):
+    _directory, profile = _prepare_second_run(app, tmp_path, None)
+
+    assert profile is None
+
+
+def test_resume_skips_the_collision_dialog(app, tmp_path):
+    directory = _fill_capture_folder(tmp_path / "capture")
+    app._region = Region(0, 0, 80, 100)
+    app.var_outdir.set(str(directory))
+    app.var_resume.set(True)
+    app._ask_about_existing = lambda *_a, **_k: pytest.fail("確認は出さない")
+
+    profile = app._resolve_output_collision(app._build_profile())
+
+    assert profile is not None
+    assert profile.output_dir == str(directory)
+
+
 def test_window_list_is_loaded_without_pressing_refresh(app, monkeypatch):
     from s2pdf import winput
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import queue
+import tempfile
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -10,7 +11,13 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
 from . import __version__, deps, pdfbuild, winput
-from .config import Profile, ProfileStore, Region
+from .config import (
+    Profile,
+    ProfileStore,
+    Region,
+    next_available_dir,
+    next_available_path,
+)
 from .engine import CaptureError, Capturer, to_window_region
 from .region import pick_region
 
@@ -425,7 +432,8 @@ class App(tk.Tk):
         except ValueError as exc:
             messagebox.showerror("入力エラー", str(exc))
             return
-        path = Path(profile.output_dir).expanduser() / "_preview.png"
+        # 取り込み用フォルダには置かない（PDF に混ざるのを避ける）
+        path = Path(tempfile.gettempdir()) / "s2pdf_preview.png"
         hides_itself = not profile.uses_window_capture
         try:
             if hides_itself:
@@ -564,6 +572,91 @@ class App(tk.Tk):
 
     # ---- 実行 -------------------------------------------------------
 
+    def _ask_about_existing(self, directory: Path, count: int) -> Optional[str]:
+        """既に画像があるフォルダに撮ろうとしたときの確認。
+
+        返り値は "new"（別フォルダ）/ "clear"（消してから）/ "append"（追加）/ None（中止）。
+        """
+        dialog = tk.Toplevel(self)
+        dialog.title("すでに画像があります")
+        dialog.transient(self)
+        dialog.resizable(False, False)
+        choice: dict[str, Optional[str]] = {"value": None}
+
+        ttk.Label(
+            dialog,
+            justify="left",
+            text=(
+                f"{directory}\nには既に {count} 枚の画像があります。\n\n"
+                "このまま撮ると前回の分と混ざって、1 つの PDF にまとまってしまいます。\n"
+                "どうしますか？"
+            ),
+        ).pack(padx=16, pady=(14, 10), anchor="w")
+
+        buttons = ttk.Frame(dialog)
+        buttons.pack(padx=16, pady=(0, 14), fill="x")
+
+        def pick(value: Optional[str]) -> None:
+            choice["value"] = value
+            dialog.destroy()
+
+        for text, value in (
+            ("別のフォルダに保存する（おすすめ）", "new"),
+            ("今ある画像を削除してから撮る", "clear"),
+            ("前回の続きとして追加する", "append"),
+            ("やめる", None),
+        ):
+            ttk.Button(buttons, text=text, command=lambda v=value: pick(v)).pack(
+                fill="x", pady=2
+            )
+
+        dialog.protocol("WM_DELETE_WINDOW", lambda: pick(None))
+        dialog.grab_set()
+        self.wait_window(dialog)
+        return choice["value"]
+
+    def _resolve_output_collision(self, profile: Profile) -> Optional[Profile]:
+        """出力先に前回の画像が残っていないか確かめ、必要なら退避する。
+
+        続行できるプロファイルを返す。中止なら None。
+        """
+        if self.var_resume.get():
+            return profile  # 続きから撮るときは混ざって当然なので触らない
+
+        directory = profile.output_path()
+        existing = pdfbuild.collect_images(directory)
+        if not existing:
+            return profile
+
+        choice = self._ask_about_existing(directory, len(existing))
+        if choice is None:
+            self.write_log("開始を取りやめました。")
+            return None
+
+        if choice == "clear":
+            for path in existing:
+                try:
+                    path.unlink()
+                except OSError as exc:
+                    messagebox.showerror("エラー", f"削除できませんでした: {exc}")
+                    return None
+            self.write_log(f"{len(existing)} 枚の画像を削除しました。")
+            return profile
+
+        if choice == "new":
+            new_dir = next_available_dir(directory)
+            self.var_outdir.set(str(new_dir))
+            new_pdf = next_available_path(Path(self.var_pdf.get()).expanduser())
+            self.var_pdf.set(str(new_pdf))
+            self.write_log(f"保存先を {new_dir} に、PDF を {new_pdf.name} に変えました。")
+            try:
+                return self._build_profile()
+            except ValueError as exc:
+                messagebox.showerror("入力エラー", str(exc))
+                return None
+
+        return profile  # append
+
     def on_start(self) -> None:
         if self._worker and self._worker.is_alive():
             return
@@ -573,6 +666,11 @@ class App(tk.Tk):
         except ValueError as exc:
             messagebox.showerror("入力エラー", str(exc))
             return
+
+        resolved = self._resolve_output_collision(profile)
+        if resolved is None:
+            return
+        profile = resolved
 
         self._stop_flag.clear()
         self.btn_start.configure(state="disabled")

@@ -26,6 +26,30 @@ def profiles_path() -> Path:
     return config_dir() / "profiles.json"
 
 
+def next_available_dir(path: Path) -> Path:
+    """中身のある同名フォルダがあれば `_2`, `_3` … と番号を足した名前を返す。"""
+    if not path.exists() or not any(path.iterdir()):
+        return path
+    number = 2
+    while True:
+        candidate = path.with_name(f"{path.name}_{number}")
+        if not candidate.exists() or not any(candidate.iterdir()):
+            return candidate
+        number += 1
+
+
+def next_available_path(path: Path) -> Path:
+    """同名ファイルがあれば `_2`, `_3` … と番号を足した名前を返す。"""
+    if not path.exists():
+        return path
+    number = 2
+    while True:
+        candidate = path.with_name(f"{path.stem}_{number}{path.suffix}")
+        if not candidate.exists():
+            return candidate
+        number += 1
+
+
 @dataclass
 class Region:
     """キャプチャする矩形（画面の実ピクセル座標）。"""

@@ -21,11 +21,18 @@ def natural_key(path: Path) -> tuple:
 
 
 def collect_images(directory: Path) -> list[Path]:
-    """フォルダ内の画像を連番順に集める。"""
+    """フォルダ内の画像を連番順に集める。
+
+    `_` で始まる名前（プレビューなどの作業用ファイル）は PDF に入れない。
+    """
+    if not directory.exists():
+        return []
     files = [
         p
         for p in directory.iterdir()
-        if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES
+        if p.is_file()
+        and p.suffix.lower() in IMAGE_SUFFIXES
+        and not p.name.startswith("_")
     ]
     return sorted(files, key=natural_key)
 
