@@ -130,6 +130,31 @@ def test_gui_form_round_trip(app, tmp_path):
     assert rebuilt.max_width == 900
 
 
+def test_window_list_is_loaded_without_pressing_refresh(app, monkeypatch):
+    from s2pdf import winput
+
+    monkeypatch.setattr(
+        winput,
+        "list_windows",
+        lambda *a, **k: [winput.WindowInfo(1, "メモ帳"), winput.WindowInfo(2, "ブラウザ")],
+    )
+    app._load_window_list_at_startup()
+
+    assert list(app.combo_window["values"]) == ["ブラウザ", "メモ帳"]  # 名前順
+
+
+def test_window_list_failure_does_not_crash(app, monkeypatch):
+    from s2pdf import winput
+
+    def boom(*_a, **_k):
+        raise RuntimeError("この機能は Windows でのみ使えます。")
+
+    monkeypatch.setattr(winput, "list_windows", boom)
+
+    assert app._reload_window_list() == []
+    assert "取得できませんでした" in app.log.get("1.0", "end")
+
+
 def test_changing_capture_mode_clears_the_region(app):
     app._region = Region(10, 20, 300, 400)
     app.var_region.set(str(app._region))

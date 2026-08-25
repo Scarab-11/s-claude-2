@@ -96,6 +96,16 @@ class App(tk.Tk):
         self._load_profile_into_form(self.profile)
         self.after(100, self._drain_queue)
         self.after(200, self._warn_about_missing_dependencies)
+        self.after(250, self._load_window_list_at_startup)
+
+    def _load_window_list_at_startup(self) -> None:
+        """起動した時点で対象ウィンドウを選べるようにしておく。"""
+        titles = self._reload_window_list()
+        if titles:
+            self.write_log(
+                f"ウィンドウ一覧を {len(titles)} 件読み込みました。"
+                "（一覧に無いときは名前の一部を直接入力できます）"
+            )
 
     def _warn_about_missing_dependencies(self) -> None:
         """足りないライブラリは、撮り始める前に知らせる。"""
@@ -147,7 +157,13 @@ class App(tk.Tk):
         box = ttk.LabelFrame(outer, text="2. ページ送り")
         box.grid(row=1, column=0, sticky="ew", pady=4)
         ttk.Label(box, text="対象ウィンドウ").grid(row=0, column=0, sticky="w", **PAD)
-        self.combo_window = ttk.Combobox(box, textvariable=self.var_window, width=34)
+        self.combo_window = ttk.Combobox(
+            box,
+            textvariable=self.var_window,
+            width=34,
+            # 開くたびに取り直すので、一覧が古くなることがない
+            postcommand=self._reload_window_list,
+        )
         self.combo_window.grid(row=0, column=1, columnspan=2, sticky="w", **PAD)
         ttk.Button(box, text="一覧を更新", command=self.on_refresh_windows).grid(row=0, column=3, **PAD)
 
@@ -441,13 +457,27 @@ class App(tk.Tk):
         label.image = photo  # 参照を保持しないと消える
         label.pack()
 
-    def on_refresh_windows(self) -> None:
+    def _reload_window_list(self) -> list[str]:
+        """開いているウィンドウの一覧を取り直す。失敗しても落とさない。"""
         try:
-            titles = [info.title for info in winput.list_windows()]
-        except RuntimeError as exc:
-            messagebox.showerror("エラー", str(exc))
-            return
+            titles = sorted({info.title for info in winput.list_windows()})
+        except (RuntimeError, OSError) as exc:
+            self.write_log(f"ウィンドウ一覧を取得できませんでした: {exc}")
+            return []
         self.combo_window["values"] = titles
+        return titles
+
+    def on_refresh_windows(self) -> None:
+        titles = self._reload_window_list()
+        if not titles:
+            messagebox.showinfo(
+                "お知らせ",
+                "選べるウィンドウが見つかりませんでした。\n"
+                "対象のアプリを開いてから、もう一度お試しください。\n\n"
+                "それでも出てこない場合は、この欄にウィンドウ名の一部を\n"
+                "直接入力しても指定できます。",
+            )
+            return
         self.write_log(f"ウィンドウ {len(titles)} 件を取得しました。")
 
     def on_browse_outdir(self) -> None:

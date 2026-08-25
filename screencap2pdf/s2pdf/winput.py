@@ -5,6 +5,7 @@ Windows 以外でも import はできる（テスト用）。実際に呼ぶと 
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from typing import Iterator, NamedTuple, Optional
@@ -40,6 +41,46 @@ VK_ESCAPE = 0x1B
 class WindowInfo(NamedTuple):
     hwnd: int
     title: str
+
+
+# 一覧に出しても選ぶ意味がない、システムが常に持っているウィンドウ
+IGNORED_WINDOW_TITLES = frozenset(
+    {
+        "Program Manager",
+        "Default IME",
+        "MSCTFIME UI",
+        "Windows Input Experience",
+        "Windows 入力エクスペリエンス",
+        "Microsoft Text Input Application",
+        "設定",  # 実体のない常駐ウィンドウとして現れることがある
+    }
+)
+
+MIN_LISTED_WINDOW_SIZE = 80  # これより小さいウィンドウは対象にしない
+
+
+def should_list_window(
+    title: str,
+    *,
+    visible: bool,
+    tool_window: bool,
+    cloaked: bool,
+    own_process: bool,
+    width: int,
+    height: int,
+) -> bool:
+    """ウィンドウ一覧に出すかどうか。
+
+    Windows は見えないウィンドウを大量に持っているので、
+    利用者が選ぶ意味のあるものだけに絞る。
+    """
+    if not title.strip():
+        return False
+    if not visible or cloaked or tool_window or own_process:
+        return False
+    if title in IGNORED_WINDOW_TITLES:
+        return False
+    return width >= MIN_LISTED_WINDOW_SIZE and height >= MIN_LISTED_WINDOW_SIZE
 
 
 def key_names() -> list[str]:
@@ -94,6 +135,10 @@ if IS_WINDOWS:  # pragma: no cover - Windows 実機でのみ通る
     PW_RENDERFULLCONTENT = 0x0002
     BI_RGB = 0
     DIB_RGB_COLORS = 0
+
+    GWL_EXSTYLE = -20
+    WS_EX_TOOLWINDOW = 0x00000080
+    DWMWA_CLOAKED = 14
 
     class KEYBDINPUT(ctypes.Structure):
         _fields_ = [
@@ -193,19 +238,64 @@ if IS_WINDOWS:  # pragma: no cover - Windows 実機でのみ通る
             raise OSError(ctypes.get_last_error(), "GetWindowRect に失敗しました")
         return (rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top)
 
-    def list_windows() -> list[WindowInfo]:
-        """タイトルを持つ可視ウィンドウの一覧。"""
+    def _is_cloaked(hwnd: int) -> bool:
+        """DWM に隠されているウィンドウ（閉じたストアアプリなど）か。"""
+        try:
+            dwmapi = ctypes.WinDLL("dwmapi")
+            value = ctypes.c_int(0)
+            dwmapi.DwmGetWindowAttribute(
+                wintypes.HWND(hwnd),
+                DWMWA_CLOAKED,
+                ctypes.byref(value),
+                ctypes.sizeof(value),
+            )
+            return bool(value.value)
+        except Exception:
+            return False
+
+    def _belongs_to_this_process(hwnd: int) -> bool:
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        return pid.value == os.getpid()
+
+    def list_windows(include_all: bool = False) -> list[WindowInfo]:
+        """利用者が選ぶ意味のあるウィンドウの一覧。
+
+        ``include_all`` を True にすると、絞り込みをせず全部返す
+        （目的のウィンドウが出てこないときの確認用）。
+        """
         results: list[WindowInfo] = []
         proto = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
         def _cb(hwnd, _lparam):
-            if user32.IsWindowVisible(hwnd):
-                title = get_window_title(hwnd)
-                if title:
+            title = get_window_title(hwnd)
+            if include_all:
+                if title.strip():
                     results.append(WindowInfo(int(hwnd), title))
+                return True
+            try:
+                _left, _top, width, height = get_window_rect(hwnd)
+            except OSError:
+                return True
+            keep = should_list_window(
+                title,
+                visible=bool(user32.IsWindowVisible(hwnd)),
+                tool_window=bool(
+                    user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW
+                ),
+                cloaked=_is_cloaked(hwnd),
+                own_process=_belongs_to_this_process(hwnd),
+                width=width,
+                height=height,
+            )
+            if keep:
+                results.append(WindowInfo(int(hwnd), title))
             return True
 
-        user32.EnumWindows(proto(_cb), 0)
+        # コールバックは EnumWindows の実行中だけ生きていればよいが、
+        # 参照を残しておかないと最適化で回収される場合があるので変数に持つ
+        callback = proto(_cb)
+        user32.EnumWindows(callback, 0)
         return results
 
     def find_window(substring: str) -> Optional[WindowInfo]:
@@ -373,7 +463,7 @@ else:  # Windows 以外では呼べないスタブ
         _require_windows()
         raise AssertionError
 
-    def list_windows() -> list[WindowInfo]:
+    def list_windows(include_all: bool = False) -> list[WindowInfo]:
         _require_windows()
         raise AssertionError
 

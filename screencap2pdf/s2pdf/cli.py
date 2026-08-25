@@ -114,6 +114,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_windows = sub.add_parser("windows", help="開いているウィンドウの一覧を表示する")
     p_windows.add_argument("--filter", metavar="文字列", help="タイトルの部分一致で絞る")
+    p_windows.add_argument(
+        "--all",
+        action="store_true",
+        help="絞り込みをせずに全部表示する（目的のウィンドウが出てこないとき）",
+    )
 
     p_profiles = sub.add_parser("profiles", help="保存済みプロファイルを見る・消す")
     p_profiles.add_argument("--delete", metavar="名前", help="指定した名前のプロファイルを削除する")
@@ -252,10 +257,16 @@ def cmd_build(args: argparse.Namespace, _store: ProfileStore) -> int:
 
 def cmd_windows(args: argparse.Namespace, _store: ProfileStore) -> int:
     needle = (args.filter or "").lower()
-    for info in winput.list_windows():
+    shown = 0
+    for info in winput.list_windows(include_all=args.all):
         if needle and needle not in info.title.lower():
             continue
         _echo(f"{info.hwnd:>10}  {info.title}")
+        shown += 1
+    if shown == 0:
+        _echo("該当するウィンドウが見つかりませんでした。")
+        if not args.all:
+            _echo("`s2pdf windows --all` で絞り込みなしの一覧を確認できます。")
     return 0
 
 
