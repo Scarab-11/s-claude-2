@@ -77,6 +77,7 @@ if IS_WINDOWS:  # pragma: no cover - Windows 実機でのみ通る
 
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
 
     ULONG_PTR = ctypes.c_size_t
 
@@ -85,6 +86,14 @@ if IS_WINDOWS:  # pragma: no cover - Windows 実機でのみ通る
     KEYEVENTF_KEYUP = 0x0002
 
     SW_RESTORE = 9
+
+    WM_KEYDOWN = 0x0100
+    WM_KEYUP = 0x0101
+    MAPVK_VK_TO_VSC = 0
+
+    PW_RENDERFULLCONTENT = 0x0002
+    BI_RGB = 0
+    DIB_RGB_COLORS = 0
 
     class KEYBDINPUT(ctypes.Structure):
         _fields_ = [
@@ -232,6 +241,106 @@ if IS_WINDOWS:  # pragma: no cover - Windows 実機でのみ通る
         """他のウィンドウが前面でも Esc の押下を拾えるようにする（緊急停止用）。"""
         return bool(user32.GetAsyncKeyState(VK_ESCAPE) & 0x8000)
 
+    def focused_control(hwnd: int) -> int:
+        """対象ウィンドウの中で実際に入力を受け取っている子ウィンドウ。
+
+        アプリによっては親ウィンドウではなく中の子ウィンドウがキーを処理するため、
+        メッセージの送り先としてはこちらの方が当たりやすい。
+        """
+        cur_thread = kernel32.GetCurrentThreadId()
+        tgt_thread = user32.GetWindowThreadProcessId(hwnd, None)
+        if cur_thread == tgt_thread:
+            return int(user32.GetFocus() or hwnd)
+        if not user32.AttachThreadInput(cur_thread, tgt_thread, True):
+            return hwnd
+        try:
+            focus = user32.GetFocus()
+        finally:
+            user32.AttachThreadInput(cur_thread, tgt_thread, False)
+        return int(focus or hwnd)
+
+    def post_key(hwnd: int, name: str) -> None:
+        """前面に出さずにキーを送る（裏で動かすとき用）。
+
+        SendInput と違って前面のウィンドウを奪わないので、他の作業と並行できる。
+        ただしメッセージを直接受け取らない作りのアプリには効かない。
+        """
+        key = normalize_key(name)
+        vk = VK_CODES[key]
+        extended = 1 if key in _EXTENDED_KEYS else 0
+        scan = user32.MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)
+
+        target = focused_control(hwnd)
+        down = 1 | (scan << 16) | (extended << 24)
+        up = down | (1 << 30) | (1 << 31)
+        user32.PostMessageW(target, WM_KEYDOWN, vk, down)
+        user32.PostMessageW(target, WM_KEYUP, vk, up)
+
+    class BITMAPINFOHEADER(ctypes.Structure):
+        _fields_ = [
+            ("biSize", wintypes.DWORD),
+            ("biWidth", wintypes.LONG),
+            ("biHeight", wintypes.LONG),
+            ("biPlanes", wintypes.WORD),
+            ("biBitCount", wintypes.WORD),
+            ("biCompression", wintypes.DWORD),
+            ("biSizeImage", wintypes.DWORD),
+            ("biXPelsPerMeter", wintypes.LONG),
+            ("biYPelsPerMeter", wintypes.LONG),
+            ("biClrUsed", wintypes.DWORD),
+            ("biClrImportant", wintypes.DWORD),
+        ]
+
+    class BITMAPINFO(ctypes.Structure):
+        _fields_ = [("bmiHeader", BITMAPINFOHEADER), ("bmiColors", wintypes.DWORD * 3)]
+
+    user32.PrintWindow.argtypes = (wintypes.HWND, wintypes.HDC, wintypes.UINT)
+    user32.PrintWindow.restype = wintypes.BOOL
+
+    def capture_window_image(hwnd: int):
+        """ウィンドウの中身を、他のウィンドウに隠れていても取り込む。
+
+        画面をそのまま撮るのではなく、ウィンドウ自身に描画させる（PrintWindow）ので、
+        裏に回っていても撮れる。ただし描画方法によっては真っ黒な画像が返る。
+        """
+        from PIL import Image  # winput 単体では PIL に依存させない
+
+        _left, _top, width, height = get_window_rect(hwnd)
+        if width <= 0 or height <= 0:
+            raise OSError("ウィンドウの大きさを取得できませんでした。")
+
+        window_dc = user32.GetWindowDC(hwnd)
+        if not window_dc:
+            raise OSError("ウィンドウのデバイスコンテキストを取得できませんでした。")
+        mem_dc = gdi32.CreateCompatibleDC(window_dc)
+        bitmap = gdi32.CreateCompatibleBitmap(window_dc, width, height)
+        old_bitmap = gdi32.SelectObject(mem_dc, bitmap)
+        try:
+            if not user32.PrintWindow(hwnd, mem_dc, PW_RENDERFULLCONTENT):
+                # 古いアプリ向けのフォールバック
+                user32.PrintWindow(hwnd, mem_dc, 0)
+
+            info = BITMAPINFO()
+            info.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+            info.bmiHeader.biWidth = width
+            info.bmiHeader.biHeight = -height  # 上下反転させずに取り出す
+            info.bmiHeader.biPlanes = 1
+            info.bmiHeader.biBitCount = 32
+            info.bmiHeader.biCompression = BI_RGB
+
+            buffer = ctypes.create_string_buffer(width * height * 4)
+            copied = gdi32.GetDIBits(
+                mem_dc, bitmap, 0, height, buffer, ctypes.byref(info), DIB_RGB_COLORS
+            )
+            if not copied:
+                raise OSError("ウィンドウの画像を取り出せませんでした。")
+            return Image.frombuffer("RGB", (width, height), buffer, "raw", "BGRX", 0, 1)
+        finally:
+            gdi32.SelectObject(mem_dc, old_bitmap)
+            gdi32.DeleteObject(bitmap)
+            gdi32.DeleteDC(mem_dc)
+            user32.ReleaseDC(hwnd, window_dc)
+
     def virtual_screen_rect() -> tuple[int, int, int, int]:
         """マルチモニタ全体を覆う矩形 (left, top, width, height)。"""
         SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN = 76, 77
@@ -280,6 +389,18 @@ else:  # Windows 以外では呼べないスタブ
         return False
 
     def virtual_screen_rect() -> tuple[int, int, int, int]:
+        _require_windows()
+        raise AssertionError
+
+    def focused_control(hwnd: int) -> int:
+        _require_windows()
+        raise AssertionError
+
+    def post_key(hwnd: int, name: str) -> None:
+        normalize_key(name)
+        _require_windows()
+
+    def capture_window_image(hwnd: int):
         _require_windows()
         raise AssertionError
 

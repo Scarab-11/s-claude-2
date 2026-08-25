@@ -49,13 +49,16 @@ class FakeScreen:
 
 
 def _pump(app, seconds=10.0):
-    """ワーカーが終わるまで Tk のイベントループを回す。"""
+    """ワーカーが終わり、完了処理まで済むまで Tk のイベントループを回す。
+
+    完了メッセージはキュー経由で受け取るので、スレッドの終了だけでは足りない。
+    ボタンが戻ったことをもって完了とみなす。
+    """
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         app.update()
-        if app._worker is not None and not app._worker.is_alive():
-            app.update()  # 完了メッセージを処理させる
-            app.update()
+        finished = app._worker is not None and not app._worker.is_alive()
+        if finished and str(app.btn_start["state"]) == "normal":
             return True
         time.sleep(0.02)
     return False
@@ -125,6 +128,36 @@ def test_gui_form_round_trip(app, tmp_path):
     assert rebuilt.trim is True
     assert rebuilt.grayscale is True
     assert rebuilt.max_width == 900
+
+
+def test_changing_capture_mode_clears_the_region(app):
+    app._region = Region(10, 20, 300, 400)
+    app.var_region.set(str(app._region))
+    app.var_window_capture.set(True)
+    app._on_capture_mode_changed()
+
+    assert app._region is None
+    assert "選び直" in app.var_region.get()
+
+
+def test_window_capture_mode_reaches_the_profile(app):
+    app._region = Region(0, 0, 100, 100)
+    app.var_window_capture.set(True)
+    app.var_window.set("対象アプリ")
+
+    profile = app._build_profile()
+
+    assert profile.uses_window_capture
+    assert profile.window_title == "対象アプリ"
+
+
+def test_window_capture_mode_needs_a_window(app):
+    app._region = Region(0, 0, 100, 100)
+    app.var_window_capture.set(True)
+    app.var_window.set("")
+
+    with pytest.raises(ValueError, match="対象ウィンドウ"):
+        app._build_profile()
 
 
 def test_gui_rejects_non_numeric_input(app, monkeypatch):

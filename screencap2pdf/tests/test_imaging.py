@@ -64,6 +64,12 @@ def test_fingerprint_detects_same_and_different_pages():
     assert imaging.difference(fp_a, fp_c) > 0.0
 
 
+def test_is_uniform_detects_blank_captures():
+    assert imaging.is_uniform(Image.new("RGB", (20, 20), (0, 0, 0)))
+    assert imaging.is_uniform(Image.new("RGB", (20, 20), (255, 255, 255)))
+    assert not imaging.is_uniform(_page_with_margin())
+
+
 def test_difference_of_mismatched_fingerprints():
     assert imaging.difference(b"", b"") == 1.0
     assert imaging.difference(b"abc", b"ab") == 1.0

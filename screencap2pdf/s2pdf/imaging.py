@@ -106,3 +106,9 @@ def difference(a: bytes, b: bytes) -> float:
 def looks_same(a: bytes, b: bytes, threshold: float = DEFAULT_SIMILARITY_THRESHOLD) -> bool:
     """同じページとみなせるか。"""
     return difference(a, b) <= threshold
+
+
+def is_uniform(image: Image.Image) -> bool:
+    """全体が 1 色か。ウィンドウ直接キャプチャに失敗すると真っ黒／真っ白になる。"""
+    low, high = image.convert("L").getextrema()
+    return low == high

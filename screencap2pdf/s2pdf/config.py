@@ -47,6 +47,18 @@ class Region:
     def as_tuple(self) -> tuple[int, int, int, int]:
         return (self.left, self.top, self.width, self.height)
 
+    def relative_to(self, origin_left: int, origin_top: int) -> "Region":
+        """原点をずらした座標系での矩形（画面座標 → ウィンドウ内座標）。"""
+        return Region(self.left - origin_left, self.top - origin_top, self.width, self.height)
+
+    def crop_box(self, image_width: int, image_height: int) -> tuple[int, int, int, int]:
+        """画像からこの範囲を切り出すための箱。画像からはみ出す分は詰める。"""
+        left = max(0, min(self.left, image_width))
+        top = max(0, min(self.top, image_height))
+        right = max(left, min(self.left + self.width, image_width))
+        bottom = max(top, min(self.top + self.height, image_height))
+        return (left, top, right, bottom)
+
     def intersects(self, other: "Region") -> bool:
         return not (
             self.left + self.width <= other.left
@@ -92,6 +104,8 @@ class Profile:
     name: str = "default"
     region: Optional[Region] = None
     window_title: Optional[str] = None
+    # "screen" = 画面をそのまま撮る / "window" = ウィンドウの中身を直接撮る（裏で動かせる）
+    capture_mode: str = "screen"
     key: str = "right"
     pages: int = 0  # 0 なら「同じページが続くまで」自動判定
     start_delay: float = 3.0  # 開始ボタンを押してから 1 枚目までの待ち
@@ -127,12 +141,24 @@ class Profile:
         """1 始まりのページ番号に対応する画像パス。"""
         return self.output_path() / f"{self.prefix}_{index:04d}.{self.image_format}"
 
+    @property
+    def uses_window_capture(self) -> bool:
+        """ウィンドウを直接キャプチャする（他の作業と並行できる）モードか。"""
+        return self.capture_mode == "window"
+
     def validate(self) -> None:
         from .winput import normalize_key
 
-        if self.region is None:
+        if self.capture_mode not in ("screen", "window"):
+            raise ValueError("キャプチャ方式は screen か window にしてください。")
+        if self.uses_window_capture:
+            if not (self.window_title or "").strip():
+                raise ValueError(
+                    "ウィンドウを直接キャプチャするモードでは、対象ウィンドウの指定が必要です。"
+                )
+        elif self.region is None:
             raise ValueError("キャプチャ範囲が未設定です。先に範囲を指定してください。")
-        if self.region.width <= 0 or self.region.height <= 0:
+        if self.region is not None and (self.region.width <= 0 or self.region.height <= 0):
             raise ValueError("キャプチャ範囲の幅と高さは 1 以上にしてください。")
         normalize_key(self.key)
         if self.pages < 0:

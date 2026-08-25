@@ -34,6 +34,21 @@ def _add_profile_arg(parser: argparse.ArgumentParser) -> None:
 def _add_capture_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--region", metavar="左,上,幅,高さ", help="キャプチャ範囲を数値で指定")
     parser.add_argument("--window", metavar="タイトル", help="ページ送りキーを送るウィンドウ（部分一致）")
+    parser.add_argument(
+        "--window-capture",
+        dest="capture_mode",
+        action="store_const",
+        const="window",
+        default=None,
+        help="ウィンドウの中身を直接撮る（他の作業と並行できる。--window の指定が必要）",
+    )
+    parser.add_argument(
+        "--screen-capture",
+        dest="capture_mode",
+        action="store_const",
+        const="screen",
+        help="画面をそのまま撮る（既定）",
+    )
     parser.add_argument("--key", metavar="キー", help="ページ送りに使うキー（例: right, pagedown, space）")
     parser.add_argument("--pages", type=int, metavar="N", help="撮るページ数（0 で終端の自動判定）")
     parser.add_argument("--out-dir", metavar="フォルダ", help="画像の保存先")
@@ -66,6 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_pick = sub.add_parser("pick", help="ドラッグでキャプチャ範囲を選ぶ")
     _add_profile_arg(p_pick)
+    _add_capture_args(p_pick)
 
     p_preview = sub.add_parser("preview", help="範囲を 1 枚だけ撮って確認する")
     _add_profile_arg(p_preview)
@@ -121,6 +137,7 @@ def _apply_overrides(profile: Profile, args: argparse.Namespace) -> Profile:
         profile.region = Region.parse(args.region)
     for attr, field_name in (
         ("window", "window_title"),
+        ("capture_mode", "capture_mode"),
         ("key", "key"),
         ("pages", "pages"),
         ("out_dir", "output_dir"),
@@ -151,13 +168,17 @@ def _progress(done: int, total: int) -> None:
 
 
 def cmd_pick(args: argparse.Namespace, store: ProfileStore) -> int:
+    from .engine import to_window_region
     from .region import pick_region
 
-    profile = _load_profile(store, args.profile)
-    region = pick_region(initial=profile.region)
+    profile = _apply_overrides(_load_profile(store, args.profile), args)
+    region = pick_region()
     if region is None:
         _echo("範囲の選択を中止しました。")
         return 1
+    if profile.uses_window_capture and profile.window_title:
+        region = to_window_region(region, profile.window_title)
+        _echo("ウィンドウの左上を原点とした座標で保存します。")
     profile.region = region
     store.save(profile)
     _echo(f"範囲を保存しました: {region}  → プロファイル '{profile.name}'")

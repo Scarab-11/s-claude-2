@@ -11,7 +11,7 @@ from typing import Optional
 
 from . import __version__, deps, pdfbuild, winput
 from .config import Profile, ProfileStore, Region
-from .engine import CaptureError, Capturer
+from .engine import CaptureError, Capturer, to_window_region
 from .region import pick_region
 
 PAD = {"padx": 6, "pady": 4}
@@ -20,7 +20,7 @@ PAD = {"padx": 6, "pady": 4}
 class ProgressWindow(tk.Toplevel):
     """キャプチャ中だけ出す小さな進捗表示。撮影範囲を避けて配置する。"""
 
-    def __init__(self, master: tk.Misc, region: Region, on_cancel) -> None:
+    def __init__(self, master: tk.Misc, region: Optional[Region], on_cancel) -> None:
         super().__init__(master)
         self.title("キャプチャ中")
         self.overrideredirect(False)
@@ -41,7 +41,7 @@ class ProgressWindow(tk.Toplevel):
         self.update_idletasks()
         self._place_clear_of(region)
 
-    def _place_clear_of(self, region: Region) -> None:
+    def _place_clear_of(self, region: Optional[Region]) -> None:
         """撮影範囲にかからない位置に置く。"""
         width = self.winfo_width() or 320
         height = self.winfo_height() or 120
@@ -54,6 +54,9 @@ class ProgressWindow(tk.Toplevel):
             (screen_w - width - margin, margin),
             (margin, margin),
         ]
+        if region is None:  # ウィンドウ直接キャプチャなら写り込まないので気にしない
+            self.geometry(f"+{candidates[0][0]}+{candidates[0][1]}")
+            return
         for x, y in candidates:
             spot = Region(x, y, width, height)
             if not spot.intersects(region):
@@ -108,6 +111,7 @@ class App(tk.Tk):
     def _build_vars(self) -> None:
         self.var_region = tk.StringVar(value="未設定")
         self.var_window = tk.StringVar()
+        self.var_window_capture = tk.BooleanVar(value=False)
         self.var_key = tk.StringVar(value="right")
         self.var_pages = tk.StringVar(value="0")
         self.var_start_delay = tk.StringVar(value="3.0")
@@ -173,6 +177,23 @@ class App(tk.Tk):
         ttk.Checkbutton(
             box, text="同じ画面が続いたら終端とみなして自動で止める", variable=self.var_autostop
         ).grid(row=3, column=0, columnspan=4, sticky="w", **PAD)
+
+        ttk.Checkbutton(
+            box,
+            text="他の作業と並行する（ウィンドウの中身を直接撮る・要:対象ウィンドウ指定）",
+            variable=self.var_window_capture,
+            command=self._on_capture_mode_changed,
+        ).grid(row=4, column=0, columnspan=4, sticky="w", **PAD)
+        ttk.Label(
+            box,
+            text="  ※ このモードは前面に出さずに撮るので、裏で動かしたまま他の作業ができます。",
+            foreground="#555555",
+        ).grid(row=5, column=0, columnspan=4, sticky="w", padx=6)
+        ttk.Label(
+            box,
+            text="  ※ 対応していないアプリでは画像が 1 色になります。開始前に自動で判定します。",
+            foreground="#555555",
+        ).grid(row=6, column=0, columnspan=4, sticky="w", padx=6, pady=(0, 4))
 
         # --- 3. 保存と加工
         box = ttk.LabelFrame(outer, text="3. 画像の保存と加工")
@@ -286,6 +307,7 @@ class App(tk.Tk):
         self._region = profile.region
         self.var_region.set(str(profile.region) if profile.region else "未設定")
         self.var_window.set(profile.window_title or "")
+        self.var_window_capture.set(profile.uses_window_capture)
         self.var_key.set(profile.key)
         self.var_pages.set(str(profile.pages))
         self.var_start_delay.set(f"{profile.start_delay:g}")
@@ -323,6 +345,7 @@ class App(tk.Tk):
             name="default",
             region=self._region,
             window_title=self.var_window.get().strip() or None,
+            capture_mode="window" if self.var_window_capture.get() else "screen",
             key=winput.normalize_key(self.var_key.get()),
             pages=pages,
             start_delay=start_delay,
@@ -342,17 +365,40 @@ class App(tk.Tk):
 
     # ---- ボタンの処理 -----------------------------------------------
 
+    def _on_capture_mode_changed(self) -> None:
+        """撮り方を変えると範囲の座標の意味が変わるので、選び直してもらう。"""
+        if self._region is None:
+            return
+        self._region = None
+        self.var_region.set("未設定（選び直してください）")
+        self.write_log("撮り方を変えたので、キャプチャ範囲を選び直してください。")
+
     def on_pick_region(self) -> None:
         self.withdraw()
         self.update()
         try:
-            region = pick_region(master=self, initial=self._region)
+            region = pick_region(master=self)
         finally:
             self.deiconify()
             self.lift()
         if region is None:
             self.write_log("範囲の選択を中止しました。")
             return
+
+        if self.var_window_capture.get():
+            title = self.var_window.get().strip()
+            if not title:
+                messagebox.showerror(
+                    "入力エラー", "先に対象ウィンドウを選んでから範囲を指定してください。"
+                )
+                return
+            try:
+                region = to_window_region(region, title)
+            except (CaptureError, RuntimeError) as exc:
+                messagebox.showerror("エラー", str(exc))
+                return
+            self.write_log("ウィンドウの左上を原点とした座標で保存します。")
+
         self._region = region
         self.var_region.set(str(region))
         self.write_log(f"範囲を設定しました: {region}")
@@ -364,9 +410,11 @@ class App(tk.Tk):
             messagebox.showerror("入力エラー", str(exc))
             return
         path = Path(profile.output_dir).expanduser() / "_preview.png"
+        hides_itself = not profile.uses_window_capture
         try:
-            self.withdraw()
-            self.update()
+            if hides_itself:
+                self.withdraw()
+                self.update()
             Capturer(profile).save_preview(path)
         except (CaptureError, OSError) as exc:
             messagebox.showerror("エラー", str(exc))
@@ -501,10 +549,16 @@ class App(tk.Tk):
         self.btn_stop.configure(state="normal")
         self.write_log("---- 開始 ----")
 
-        assert profile.region is not None
-        self._progress_window = ProgressWindow(self, profile.region, self.on_stop)
+        # 画面をそのまま撮るときだけ、自分が写り込まないように隠す
+        hides_itself = not profile.uses_window_capture
+        self._progress_window = ProgressWindow(
+            self, profile.region if hides_itself else None, self.on_stop
+        )
         self._progress_window.set_total(profile.pages)
-        self.withdraw()  # 自分が写り込まないように隠す（進捗は小窓に出る）
+        if hides_itself:
+            self.withdraw()
+        else:
+            self.write_log("ウィンドウを直接撮るので、このまま他の作業をして構いません。")
 
         self._worker = threading.Thread(
             target=self._run_worker,

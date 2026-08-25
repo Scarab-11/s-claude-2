@@ -68,6 +68,30 @@ def test_overrides_leave_unspecified_fields_alone():
     assert updated.region.as_tuple() == (9, 9, 9, 9)
 
 
+def test_window_capture_flag_switches_mode():
+    args = cli.build_parser().parse_args(["run", "--window-capture", "--window", "アプリ"])
+    profile = cli._apply_overrides(Profile(), args)
+    assert profile.uses_window_capture
+    assert profile.window_title == "アプリ"
+
+
+def test_screen_capture_flag_switches_back():
+    args = cli.build_parser().parse_args(["run", "--screen-capture"])
+    profile = cli._apply_overrides(Profile(capture_mode="window"), args)
+    assert not profile.uses_window_capture
+
+
+def test_capture_mode_is_left_alone_when_not_given():
+    args = cli.build_parser().parse_args(["run", "--pages", "3"])
+    profile = cli._apply_overrides(Profile(capture_mode="window", window_title="アプリ"), args)
+    assert profile.uses_window_capture
+
+
+def test_window_capture_without_window_reports_error(capsys):
+    assert cli.main(["run", "--window-capture"]) == 1
+    assert "対象ウィンドウ" in capsys.readouterr().err
+
+
 def test_no_trim_flag_turns_trim_off():
     args = cli.build_parser().parse_args(["run", "--no-trim"])
     updated = cli._apply_overrides(Profile(region=Region(0, 0, 1, 1), trim=True), args)

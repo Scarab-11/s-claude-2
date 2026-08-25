@@ -35,6 +35,19 @@ class CaptureReport:
         return len(self.saved)
 
 
+def to_window_region(region: Region, window_title: str) -> Region:
+    """画面座標で選んだ範囲を、ウィンドウ内の相対座標に直す。
+
+    ウィンドウ直接キャプチャではウィンドウを動かしても同じ場所を撮りたいので、
+    範囲はウィンドウの左上を原点にして持つ。
+    """
+    info = winput.find_window(window_title)
+    if info is None:
+        raise CaptureError(f"ウィンドウが見つかりません: {window_title}")
+    left, top, _width, _height = winput.get_window_rect(info.hwnd)
+    return region.relative_to(left, top)
+
+
 def _grab_region(region: Region) -> Image.Image:
     """指定範囲を 1 枚キャプチャする。"""
     try:
@@ -74,8 +87,26 @@ class Capturer:
 
     def grab(self) -> Image.Image:
         """加工前の生キャプチャ。"""
+        if self.profile.uses_window_capture:
+            return self._grab_window()
         assert self.profile.region is not None
         return _grab_region(self.profile.region)
+
+    def _grab_window_full(self) -> Image.Image:
+        """ウィンドウ全体を直接取り込む（他のウィンドウに隠れていても撮れる）。"""
+        hwnd = self._hwnd if self._hwnd is not None else self.resolve_window()
+        if hwnd is None:
+            raise CaptureError("対象ウィンドウが指定されていません。")
+        self._hwnd = hwnd
+        return winput.capture_window_image(hwnd)
+
+    def _grab_window(self) -> Image.Image:
+        """ウィンドウの中身のうち、指定された範囲だけを取り込む。"""
+        image = self._grab_window_full()
+        region = self.profile.region
+        if region is None:
+            return image
+        return image.crop(region.crop_box(image.width, image.height))
 
     def capture_page(self, index: int) -> Path:
         """1 ページ分を撮って保存し、保存先を返す。"""
@@ -87,6 +118,20 @@ class Capturer:
         else:
             image.save(path)
         return path
+
+    def check_window_capture(self) -> None:
+        """ウィンドウ直接キャプチャが効くアプリかどうかを、撮り始める前に確かめる。
+
+        判定はウィンドウ全体で行う。切り出した範囲だけを見ると、
+        余白や白紙のページを「取り込めていない」と誤判定してしまう。
+        """
+        if imaging.is_uniform(self._grab_window_full()):
+            raise CaptureError(
+                "ウィンドウの中身を取り込めませんでした（画像が 1 色になります）。\n"
+                "・対象ウィンドウが最小化されていないか確認してください\n"
+                "・このアプリが対応していない場合は、"
+                "「画面をそのまま撮る」モードに戻してください"
+            )
 
     def save_preview(self, path: Path) -> Path:
         """範囲確認用に 1 枚だけ保存する。"""
@@ -107,7 +152,14 @@ class Capturer:
         return info.hwnd
 
     def turn_page(self) -> None:
-        """対象ウィンドウを前面にしてページ送りキーを送る。"""
+        """ページ送りキーを送る。
+
+        ウィンドウ直接キャプチャのときは前面に出さずにメッセージで送るので、
+        他のウィンドウで作業していても邪魔されない。
+        """
+        if self.profile.uses_window_capture and self._hwnd is not None:
+            winput.post_key(self._hwnd, self.profile.key)
+            return
         if self._hwnd is not None and not winput.focus_window(self._hwnd):
             self.message("警告: 対象ウィンドウを前面にできませんでした。")
         winput.send_key(self.profile.key)
@@ -119,6 +171,8 @@ class Capturer:
         profile = self.profile
         report = CaptureReport()
         self._hwnd = self.resolve_window()
+        if profile.uses_window_capture:
+            self.check_window_capture()
 
         index = start_index
         if resume:

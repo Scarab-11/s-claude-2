@@ -18,6 +18,27 @@ def test_region_as_bbox_for_mss():
     assert Region(1, 2, 3, 4).as_bbox() == {"left": 1, "top": 2, "width": 3, "height": 4}
 
 
+def test_region_relative_to_shifts_the_origin():
+    assert Region(150, 90, 200, 300).relative_to(100, 50).as_tuple() == (50, 40, 200, 300)
+
+
+def test_crop_box_stays_inside_the_image():
+    assert Region(10, 20, 30, 40).crop_box(200, 200) == (10, 20, 40, 60)
+    assert Region(180, 180, 100, 100).crop_box(200, 200) == (180, 180, 200, 200)
+    assert Region(-20, -20, 50, 50).crop_box(200, 200) == (0, 0, 30, 30)
+    assert Region(500, 500, 10, 10).crop_box(200, 200) == (200, 200, 200, 200)
+
+
+def test_uses_window_capture_flag():
+    assert Profile(capture_mode="window").uses_window_capture
+    assert not Profile().uses_window_capture
+
+
+def test_validate_rejects_unknown_capture_mode():
+    with pytest.raises(ValueError, match="キャプチャ方式"):
+        Profile(capture_mode="なんとか", region=Region(0, 0, 10, 10)).validate()
+
+
 def test_region_intersects():
     base = Region(100, 100, 200, 200)
     assert base.intersects(Region(250, 250, 100, 100))

@@ -4,7 +4,7 @@ import pytest
 from PIL import Image
 
 from s2pdf import engine
-from s2pdf.config import Profile, Region
+from s2pdf.config import Profile, Region  # noqa: F401  (テスト内で直接使う)
 
 
 class FakeScreen:
@@ -189,6 +189,136 @@ def test_missing_window_is_reported(profile, screen, monkeypatch):
 
     with pytest.raises(engine.CaptureError, match="ウィンドウが見つかりません"):
         engine.Capturer(profile).run()
+
+
+class FakeWindow:
+    """ウィンドウ直接キャプチャの代わり。ページごとに違う画像を返す。"""
+
+    def __init__(self, pages, rect=(100, 50, 400, 500)):
+        self.pages = pages
+        self.index = 0
+        self.rect = rect
+        self.posted = []
+        self.focused = []
+
+    def find(self, _title):
+        from s2pdf.winput import WindowInfo
+
+        return WindowInfo(1234, "対象アプリ")
+
+    def get_rect(self, _hwnd):
+        return self.rect
+
+    def capture(self, _hwnd):
+        return self.pages[min(self.index, len(self.pages) - 1)]
+
+    def post_key(self, hwnd, name):
+        self.posted.append((hwnd, name))
+        self.index += 1
+
+    def focus(self, hwnd):
+        self.focused.append(hwnd)
+        return True
+
+
+@pytest.fixture
+def window(monkeypatch):
+    def _install(pages, rect=(100, 50, 400, 500)):
+        fake = FakeWindow(pages, rect)
+        monkeypatch.setattr(engine.winput, "find_window", fake.find)
+        monkeypatch.setattr(engine.winput, "get_window_rect", fake.get_rect)
+        monkeypatch.setattr(engine.winput, "capture_window_image", fake.capture)
+        monkeypatch.setattr(engine.winput, "post_key", fake.post_key)
+        monkeypatch.setattr(engine.winput, "focus_window", fake.focus)
+        monkeypatch.setattr(engine.winput, "is_escape_pressed", lambda: False)
+        return fake
+
+    return _install
+
+
+def _window_page(shade, size=(400, 500)):
+    """ウィンドウ全体の画像。中央に色の違う帯を入れて切り抜きを確認できるようにする。"""
+    img = Image.new("RGB", size, (255, 255, 255))
+    img.paste(Image.new("RGB", (100, 200), (shade, shade, shade)), (50, 100))
+    return img
+
+
+def test_window_capture_does_not_steal_focus(profile, window):
+    fake = window([_window_page(s) for s in (20, 90, 160)])
+    profile.capture_mode = "window"
+    profile.window_title = "対象アプリ"
+    profile.region = None
+    profile.pages = 3
+    profile.stop_on_duplicate = False
+
+    report = engine.Capturer(profile).run()
+
+    assert report.page_count == 3
+    assert fake.posted == [(1234, "right"), (1234, "right")]
+    assert fake.focused == []  # 前面に出さない
+
+
+def test_window_capture_crops_to_relative_region(profile, window):
+    window([_window_page(30)])
+    profile.capture_mode = "window"
+    profile.window_title = "対象アプリ"
+    profile.region = Region(50, 100, 100, 200)  # ウィンドウ左上からの相対座標
+    profile.pages = 1
+    profile.stop_on_duplicate = False
+
+    report = engine.Capturer(profile).run()
+
+    with Image.open(report.saved[0]) as saved:
+        assert saved.size == (100, 200)
+        assert saved.convert("RGB").getpixel((5, 5)) == (30, 30, 30)
+
+
+def test_window_capture_region_is_clamped_to_the_window(profile, window):
+    window([_window_page(30, size=(400, 500))])
+    profile.capture_mode = "window"
+    profile.window_title = "対象アプリ"
+    profile.region = Region(300, 400, 400, 400)  # 右下にはみ出す指定
+    profile.pages = 1
+    profile.stop_on_duplicate = False
+
+    report = engine.Capturer(profile).run()
+
+    with Image.open(report.saved[0]) as saved:
+        assert saved.size == (100, 100)
+
+
+def test_window_capture_detects_unsupported_app(profile, window):
+    window([Image.new("RGB", (400, 500), (0, 0, 0))])  # 真っ黒＝取り込めていない
+    profile.capture_mode = "window"
+    profile.window_title = "対象アプリ"
+    profile.region = None
+
+    with pytest.raises(engine.CaptureError, match="1 色"):
+        engine.Capturer(profile).run()
+
+
+def test_to_window_region_converts_screen_coordinates(window):
+    window([], rect=(100, 50, 400, 500))
+    converted = engine.to_window_region(Region(150, 90, 200, 300), "対象アプリ")
+    assert converted.as_tuple() == (50, 40, 200, 300)
+
+
+def test_to_window_region_reports_missing_window(monkeypatch):
+    monkeypatch.setattr(engine.winput, "find_window", lambda _t: None)
+    with pytest.raises(engine.CaptureError, match="ウィンドウが見つかりません"):
+        engine.to_window_region(Region(0, 0, 10, 10), "無いアプリ")
+
+
+def test_window_mode_requires_a_window_title(tmp_path):
+    profile = Profile(capture_mode="window", output_dir=str(tmp_path))
+    with pytest.raises(ValueError, match="対象ウィンドウ"):
+        profile.validate()
+
+
+def test_window_mode_allows_capturing_the_whole_window(tmp_path):
+    Profile(
+        capture_mode="window", window_title="アプリ", region=None, output_dir=str(tmp_path)
+    ).validate()
 
 
 def test_missing_mss_explains_how_to_install(profile, monkeypatch):
