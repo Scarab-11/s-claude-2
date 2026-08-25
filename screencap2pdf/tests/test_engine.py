@@ -191,6 +191,19 @@ def test_missing_window_is_reported(profile, screen, monkeypatch):
         engine.Capturer(profile).run()
 
 
+def test_missing_mss_explains_how_to_install(profile, monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "mss", None)  # import mss を失敗させる
+    with pytest.raises(engine.CaptureError) as error:
+        engine.Capturer(profile).grab()
+
+    message = str(error.value)
+    assert "mss" in message
+    assert "pip install" in message
+    assert sys.executable in message  # どの Python に入れるべきかを示す
+
+
 def test_save_preview_writes_one_image(profile, screen, tmp_path):
     screen([make_page(10)])
     path = engine.Capturer(profile).save_preview(tmp_path / "preview.png")

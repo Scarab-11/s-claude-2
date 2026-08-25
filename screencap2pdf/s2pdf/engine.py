@@ -9,7 +9,7 @@ from typing import Callable, Optional
 
 from PIL import Image
 
-from . import imaging, winput
+from . import deps, imaging, winput
 from .config import Profile, Region
 
 # 進捗メッセージ・進捗率の通知先
@@ -39,9 +39,10 @@ def _grab_region(region: Region) -> Image.Image:
     """指定範囲を 1 枚キャプチャする。"""
     try:
         import mss  # 遅延 import（GUI を開くだけなら不要）
-    except ImportError as exc:  # pragma: no cover
+    except ImportError as exc:
+        mss_dep = [d for d in deps.DEPENDENCIES if d.module == "mss"]
         raise CaptureError(
-            "画面キャプチャには mss が必要です。`pip install mss` を実行してください。"
+            "画面キャプチャに必要な " + deps.missing_message(mss_dep)
         ) from exc
 
     with mss.mss() as sct:

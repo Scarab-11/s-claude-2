@@ -9,7 +9,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
-from . import __version__, pdfbuild, winput
+from . import __version__, deps, pdfbuild, winput
 from .config import Profile, ProfileStore, Region
 from .engine import CaptureError, Capturer
 from .region import pick_region
@@ -92,6 +92,16 @@ class App(tk.Tk):
         self._build_widgets()
         self._load_profile_into_form(self.profile)
         self.after(100, self._drain_queue)
+        self.after(200, self._warn_about_missing_dependencies)
+
+    def _warn_about_missing_dependencies(self) -> None:
+        """足りないライブラリは、撮り始める前に知らせる。"""
+        lacking = deps.missing()
+        if not lacking:
+            return
+        message = deps.missing_message(lacking)
+        self.write_log("警告: " + message.replace("\n\n", " "))
+        messagebox.showwarning("ライブラリが足りません", message)
 
     # ---- 画面構築 ---------------------------------------------------
 

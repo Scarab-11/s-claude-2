@@ -23,6 +23,9 @@ def app(tmp_path, monkeypatch):
         pytest.skip(f"画面が使えないためスキップ: {exc}")
     root_check.destroy()
 
+    # 起動時のライブラリ不足の警告はモーダルなので、テストでは出さない
+    monkeypatch.setattr("tkinter.messagebox.showwarning", lambda *a, **k: None)
+
     from s2pdf.gui import App
 
     application = App()

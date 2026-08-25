@@ -103,6 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_profiles.add_argument("--delete", metavar="名前", help="指定した名前のプロファイルを削除する")
 
     sub.add_parser("gui", help="GUI 版を起動する")
+    sub.add_parser("doctor", help="必要なライブラリが入っているか調べる")
 
     return parser
 
@@ -265,8 +266,16 @@ def cmd_gui(_args: argparse.Namespace, _store: ProfileStore) -> int:
     return gui_main()
 
 
+def cmd_doctor(_args: argparse.Namespace, _store: ProfileStore) -> int:
+    from . import deps
+
+    _echo(deps.report())
+    return 1 if deps.missing() else 0
+
+
 COMMANDS = {
     "gui": cmd_gui,
+    "doctor": cmd_doctor,
     "pick": cmd_pick,
     "preview": cmd_preview,
     "run": cmd_run,

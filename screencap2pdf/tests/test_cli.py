@@ -84,6 +84,16 @@ def test_run_without_region_reports_error(capsys):
     assert "キャプチャ範囲" in capsys.readouterr().err
 
 
+def test_doctor_reports_environment(capsys):
+    from s2pdf import deps
+
+    code = cli.main(["doctor"])
+    out = capsys.readouterr().out
+    assert "Python:" in out
+    assert "Pillow" in out
+    assert code == (1 if deps.missing() else 0)
+
+
 def test_parser_requires_a_command():
     with pytest.raises(SystemExit):
         cli.build_parser().parse_args([])
