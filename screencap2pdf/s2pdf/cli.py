@@ -204,6 +204,20 @@ def _progress(done: int, total: int) -> None:
         _echo(f"  -- {done}/{total} ページ")
 
 
+def _pdf_progress(done: int, total: int) -> None:
+    """PDF 作成の進み具合。ページ数が多いと時間がかかるので時々知らせる。"""
+    if done == 0 or total == 0:
+        return
+    if done == total or done % 25 == 0:
+        _echo(f"  -- PDF 作成中 {done}/{total} ページ")
+
+
+def _absolute(path: Path) -> Path:
+    """どこに書いたか分かるように、常に絶対パスにする。"""
+    path = path.expanduser()
+    return path if path.is_absolute() else (Path.cwd() / path).resolve()
+
+
 def cmd_pick(args: argparse.Namespace, store: ProfileStore) -> int:
     from .engine import to_window_region
     from .region import pick_region
@@ -291,9 +305,10 @@ def cmd_run(args: argparse.Namespace, store: ProfileStore) -> int:
     if args.pdf and report.page_count:
         output, count = pdfbuild.build_pdf_from_directory(
             profile.output_path(),
-            Path(args.pdf),
+            _absolute(Path(args.pdf)),
             dpi=profile.pdf_dpi,
             jpeg_quality=profile.jpeg_quality,
+            on_progress=_pdf_progress,
         )
         size = pdfbuild.format_size(output.stat().st_size)
         _echo(f"PDF を作成しました: {output}（{count} ページ / {size}）")
@@ -319,7 +334,11 @@ def cmd_build(args: argparse.Namespace, _store: ProfileStore) -> int:
         _echo("画像が見つかりませんでした。")
         return 1
     output = pdfbuild.build_pdf(
-        images, args.output, dpi=args.dpi, jpeg_quality=args.jpeg_quality
+        images,
+        _absolute(args.output),
+        dpi=args.dpi,
+        jpeg_quality=args.jpeg_quality,
+        on_progress=_pdf_progress,
     )
     size = pdfbuild.format_size(output.stat().st_size)
     _echo(f"PDF を作成しました: {output}（{len(images)} ページ / {size}）")
@@ -395,7 +414,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     store = ProfileStore()
     try:
         return COMMANDS[args.command](args, store)
-    except (CaptureError, ValueError, FileNotFoundError, RuntimeError) as exc:
+    except (CaptureError, ValueError, FileNotFoundError, RuntimeError, MemoryError) as exc:
         print(f"エラー: {exc}", file=sys.stderr)
         return 1
 

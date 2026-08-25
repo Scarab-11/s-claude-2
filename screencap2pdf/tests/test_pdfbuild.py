@@ -1,3 +1,6 @@
+import re
+from pathlib import Path
+
 import pytest
 from PIL import Image
 
@@ -70,11 +73,77 @@ def test_build_pdf_from_directory_returns_page_count(tmp_path):
     assert output.exists()
 
 
-def test_pillow_fallback_matches_img2pdf(tmp_path):
-    images = _write_pages(tmp_path / "capture", 2)
+def _page_count(pdf: Path) -> int:
+    """PDF のページ数を数える（外部ライブラリを足さずに済ませる）。"""
+    from PIL import Image as PILImage  # noqa: F401  (Pillow は必須依存)
+
+    text = pdf.read_bytes()
+    # 追記された PDF には古い世代の /Count も残るので、最後のものを見る
+    counts = re.findall(rb"/Count\s+(\d+)", text)
+    return int(counts[-1]) if counts else 0
+
+
+def test_pillow_fallback_writes_every_page(tmp_path):
+    images = _write_pages(tmp_path / "capture", 60)  # 追記が複数回起きる枚数
     output = tmp_path / "fallback.pdf"
     pdfbuild._write_with_pillow(images, output, dpi=150)
+
     assert output.read_bytes().startswith(b"%PDF")
+    assert _page_count(output) == 60
+
+
+def test_pillow_fallback_reports_progress(tmp_path):
+    images = _write_pages(tmp_path / "capture", 30)
+    seen: list[tuple[int, int]] = []
+    pdfbuild._write_with_pillow(
+        images, tmp_path / "out.pdf", dpi=150, on_progress=lambda d, t: seen.append((d, t))
+    )
+
+    assert seen[-1] == (30, 30)
+    assert all(total == 30 for _done, total in seen)
+
+
+def test_img2pdf_path_writes_every_page(tmp_path):
+    images = _write_pages(tmp_path / "capture", 40)
+    output = tmp_path / "direct.pdf"
+    pdfbuild._write_with_img2pdf(images, output, dpi=150)
+
+    assert _page_count(output) == 40
+
+
+def test_falls_back_to_pillow_when_img2pdf_fails(tmp_path, monkeypatch):
+    """img2pdf が未導入でも、対応外の画像でも、Pillow 側で作り切る。"""
+    images = _write_pages(tmp_path / "capture", 3)
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("img2pdf が使えない状況")
+
+    monkeypatch.setattr(pdfbuild, "_write_with_img2pdf", broken)
+    output = pdfbuild._write_pdf(images, tmp_path / "out.pdf", dpi=150)
+
+    assert output.exists()
+    assert _page_count(output) == 3
+
+
+def test_build_error_explains_both_failures(tmp_path, monkeypatch):
+    images = _write_pages(tmp_path / "capture", 2)
+
+    def broken_img2pdf(*_args, **_kwargs):
+        raise RuntimeError("img2pdf 側の理由")
+
+    def broken_pillow(*_args, **_kwargs):
+        raise MemoryError("メモリが足りません")
+
+    monkeypatch.setattr(pdfbuild, "_write_with_img2pdf", broken_img2pdf)
+    monkeypatch.setattr(pdfbuild, "_write_with_pillow", broken_pillow)
+
+    with pytest.raises(pdfbuild.PdfBuildError) as error:
+        pdfbuild._write_pdf(images, tmp_path / "out.pdf", dpi=150)
+
+    message = str(error.value)
+    assert "img2pdf 側の理由" in message
+    assert "メモリが足りません" in message
+    assert "2 ページ" in message
 
 
 def test_build_pdf_rejects_empty_input(tmp_path):

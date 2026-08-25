@@ -97,6 +97,7 @@ class App(tk.Tk):
         self._stop_flag = threading.Event()
         self._worker: Optional[threading.Thread] = None
         self._progress_window: Optional[ProgressWindow] = None
+        self._last_pdf: Optional[Path] = None
 
         self._build_vars()
         self._build_widgets()
@@ -302,6 +303,9 @@ class App(tk.Tk):
             side="left", padx=4
         )
         ttk.Button(bottom, text="画像フォルダを開く", command=self.on_open_outdir).pack(
+            side="left", padx=4
+        )
+        ttk.Button(bottom, text="PDF の場所を開く", command=self.on_open_pdf_folder).pack(
             side="left", padx=4
         )
 
@@ -510,10 +514,9 @@ class App(tk.Tk):
         if path:
             self.var_pdf.set(path)
 
-    def on_open_outdir(self) -> None:
-        path = Path(self.var_outdir.get()).expanduser()
+    def _open_in_explorer(self, path: Path) -> None:
         if not path.exists():
-            messagebox.showinfo("お知らせ", f"{path} はまだありません。")
+            messagebox.showinfo("お知らせ", f"{path}\nはまだありません。")
             return
         import subprocess
         import sys
@@ -522,6 +525,17 @@ class App(tk.Tk):
             subprocess.Popen(["explorer", str(path)])
         else:
             subprocess.Popen(["xdg-open", str(path)])
+
+    def on_open_outdir(self) -> None:
+        self._open_in_explorer(Path(self.var_outdir.get()).expanduser())
+
+    def on_open_pdf_folder(self) -> None:
+        """PDF がどこにできたか分からなくなったとき用。"""
+        target = self._last_pdf or Path(self.var_pdf.get()).expanduser()
+        if not target.is_absolute():
+            target = (Path.cwd() / target).resolve()
+        self.write_log(f"PDF の場所: {target}")
+        self._open_in_explorer(target.parent)
 
     def on_save_profile(self) -> None:
         try:
@@ -541,20 +555,18 @@ class App(tk.Tk):
         self.write_log("保存した設定を読み込みました。")
 
     def on_build_pdf(self) -> None:
-        directory = Path(self.var_outdir.get()).expanduser()
-        output = Path(self.var_pdf.get()).expanduser()
+        # 範囲などが未設定でも、画像さえあれば PDF はまとめられる
         try:
-            dpi = int(self.var_dpi.get() or 150)
-            quality = self._int_or_none(self.var_jpeg.get(), "JPEG品質")
-            path, count = pdfbuild.build_pdf_from_directory(
-                directory, output, dpi=dpi, jpeg_quality=quality
+            profile = Profile(
+                pdf_dpi=int(self.var_dpi.get() or 150),
+                jpeg_quality=self._int_or_none(self.var_jpeg.get(), "JPEG品質"),
             )
-        except (ValueError, OSError) as exc:
-            messagebox.showerror("エラー", str(exc))
+        except ValueError as exc:
+            messagebox.showerror("入力エラー", str(exc))
             return
-        size = pdfbuild.format_size(path.stat().st_size)
-        self.write_log(f"PDF を作成しました: {path}（{count} ページ / {size}）")
-        messagebox.showinfo("完了", f"{path}\n{count} ページ / {size}")
+        self._make_pdf(
+            Path(self.var_outdir.get()).expanduser(), Path(self.var_pdf.get()), profile
+        )
 
     def on_retake(self) -> None:
         try:
@@ -731,27 +743,64 @@ class App(tk.Tk):
         self.btn_start.configure(state="normal")
         self.btn_stop.configure(state="disabled")
 
+    def _pdf_progress(self, done: int, total: int) -> None:
+        """PDF 作成中の表示。時間がかかるので固まったように見せない。"""
+        if self._progress_window is not None:
+            self._progress_window.set_total(total)
+            self._progress_window.status.set(f"PDF を作成中... {done} / {total} ページ")
+        self.update_idletasks()
+
+    def _make_pdf(self, directory: Path, output: Path, profile: Profile) -> Optional[Path]:
+        """PDF を作る。失敗したら理由をそのまま見せる。"""
+        output = output.expanduser()
+        if not output.is_absolute():
+            output = (Path.cwd() / output).resolve()
+
+        if not deps.Dependency("img2pdf", "img2pdf", "", False).installed:
+            self.write_log(
+                "img2pdf が入っていないため PDF の作成に時間がかかります。"
+                "「初回セットアップ.bat」を実行すると速くなります。"
+            )
+        self.write_log(f"PDF を作成しています: {output}")
+        self.update_idletasks()
+        try:
+            path, count = pdfbuild.build_pdf_from_directory(
+                directory,
+                output,
+                dpi=profile.pdf_dpi,
+                jpeg_quality=profile.jpeg_quality,
+                on_progress=self._pdf_progress,
+            )
+        except Exception as exc:  # noqa: BLE001 - 理由を利用者に見せる
+            self.write_log(f"PDF 作成エラー: {exc}")
+            messagebox.showerror(
+                "PDF 作成エラー",
+                f"{exc}\n\n画像は {directory} に残っています。\n"
+                "「画像フォルダから PDF を作る」で作り直せます。",
+            )
+            return None
+
+        self._last_pdf = path
+        size = pdfbuild.format_size(path.stat().st_size)
+        self.write_log(f"PDF を作成しました: {path}（{count} ページ / {size}）")
+        messagebox.showinfo("完了", f"{path}\n{count} ページ / {size}")
+        return path
+
     def _on_worker_done(self, payload) -> None:
         profile, report = payload
-        self._cleanup_after_run()
         self.write_log(report.reason)
         self.write_log(f"保存したページ数: {report.page_count}")
 
+        made_pdf = False
         if self.var_autopdf.get() and report.page_count:
-            try:
-                path, count = pdfbuild.build_pdf_from_directory(
-                    profile.output_path(),
-                    Path(self.var_pdf.get()).expanduser(),
-                    dpi=profile.pdf_dpi,
-                    jpeg_quality=profile.jpeg_quality,
+            made_pdf = (
+                self._make_pdf(
+                    profile.output_path(), Path(self.var_pdf.get()), profile
                 )
-            except (ValueError, OSError) as exc:
-                messagebox.showerror("PDF 作成エラー", str(exc))
-                return
-            size = pdfbuild.format_size(path.stat().st_size)
-            self.write_log(f"PDF を作成しました: {path}（{count} ページ / {size}）")
-            messagebox.showinfo("完了", f"{path}\n{count} ページ / {size}")
-        else:
+                is not None
+            )
+        self._cleanup_after_run()
+        if not made_pdf and not (self.var_autopdf.get() and report.page_count):
             messagebox.showinfo("完了", f"{report.reason}\n{report.page_count} ページ")
 
     def _on_worker_error(self, exc: Exception) -> None:

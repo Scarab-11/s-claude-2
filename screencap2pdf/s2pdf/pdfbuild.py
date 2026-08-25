@@ -6,9 +6,12 @@ import re
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterable, Iterator, Optional, Sequence
+from typing import Callable, Iterable, Iterator, Optional, Sequence
 
 from PIL import Image
+
+# (終わったページ数, 全ページ数)
+ProgressHook = Callable[[int, int], None]
 
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff")
 _NUMBER_RE = re.compile(r"(\d+)")
@@ -65,11 +68,16 @@ def _jpeg_copies(images: Sequence[Path], quality: int) -> Iterator[list[Path]]:
         yield converted
 
 
+class PdfBuildError(RuntimeError):
+    """PDF を作れなかったときに投げる。理由をそのまま利用者に見せる。"""
+
+
 def build_pdf(
     images: Sequence[Path],
     output: Path,
     dpi: int = 150,
     jpeg_quality: Optional[int] = None,
+    on_progress: Optional[ProgressHook] = None,
 ) -> Path:
     """画像を PDF にまとめる。
 
@@ -86,48 +94,103 @@ def build_pdf(
 
     if jpeg_quality is not None:
         with _jpeg_copies(images, jpeg_quality) as converted:
-            return _write_pdf(converted, output, dpi)
-    return _write_pdf(images, output, dpi)
+            return _write_pdf(converted, output, dpi, on_progress)
+    return _write_pdf(images, output, dpi, on_progress)
 
 
-def _write_pdf(images: Sequence[Path], output: Path, dpi: int) -> Path:
+def _write_pdf(
+    images: Sequence[Path],
+    output: Path,
+    dpi: int,
+    on_progress: Optional[ProgressHook] = None,
+) -> Path:
+    """まず img2pdf、駄目なら Pillow で書き出す。
+
+    img2pdf は失敗する理由がいくつもある（未導入、対応していない画像形式など）ので、
+    どんな失敗でも Pillow 側に回して、そちらも駄目なら理由をまとめて伝える。
+    """
     try:
-        return _write_with_img2pdf(images, output, dpi)
-    except ImportError:
-        return _write_with_pillow(images, output, dpi)
+        return _write_with_img2pdf(images, output, dpi, on_progress)
+    except Exception as img2pdf_error:  # noqa: BLE001 - 理由は下で伝える
+        try:
+            return _write_with_pillow(images, output, dpi, on_progress)
+        except Exception as pillow_error:  # noqa: BLE001
+            raise PdfBuildError(
+                f"PDF を作成できませんでした（{len(images)} ページ）。\n"
+                f"img2pdf: {img2pdf_error}\n"
+                f"Pillow: {pillow_error}"
+            ) from pillow_error
 
 
-def _write_with_img2pdf(images: Sequence[Path], output: Path, dpi: int) -> Path:
-    """img2pdf があれば再エンコードなしでそのまま埋め込む（画質劣化なし）。"""
+def _write_with_img2pdf(
+    images: Sequence[Path],
+    output: Path,
+    dpi: int,
+    on_progress: Optional[ProgressHook] = None,
+) -> Path:
+    """再エンコードなしでそのまま埋め込む（画質劣化なし）。
+
+    ページ数が多いと PDF 全体をメモリに載せられないので、ファイルに直接書かせる。
+    """
     import img2pdf
 
     layout = img2pdf.get_fixed_dpi_layout_fun((dpi, dpi))
+    if on_progress:
+        on_progress(0, len(images))
     with open(output, "wb") as fh:
-        fh.write(img2pdf.convert([str(p) for p in images], layout_fun=layout))
+        img2pdf.convert(
+            [str(p) for p in images], layout_fun=layout, outputstream=fh
+        )
+    if on_progress:
+        on_progress(len(images), len(images))
     return output
 
 
-def _write_with_pillow(images: Sequence[Path], output: Path, dpi: int) -> Path:
-    """img2pdf が入っていない環境向けのフォールバック。"""
-    pages: list[Image.Image] = []
-    try:
-        for path in images:
-            img = Image.open(path)
-            img.load()
-            if img.mode not in ("RGB", "L"):
-                img = img.convert("RGB")
-            pages.append(img)
-        first, rest = pages[0], pages[1:]
-        first.save(
-            output,
-            "PDF",
-            save_all=True,
-            append_images=rest,
-            resolution=float(dpi),
-        )
-    finally:
-        for img in pages:
-            img.close()
+def _load_page(path: Path) -> Image.Image:
+    """1 枚だけ読み込んで、ファイルを閉じた状態の画像を返す。"""
+    with Image.open(path) as src:
+        src.load()
+        if src.mode not in ("RGB", "L"):
+            return src.convert("RGB")
+        return src.copy()
+
+
+# Pillow で書き出すときに一度に扱うページ数。
+# 大きすぎるとメモリを食い、小さすぎると追記のたびに PDF を読み直すので遅くなる。
+PILLOW_CHUNK_SIZE = 25
+
+
+def _write_with_pillow(
+    images: Sequence[Path],
+    output: Path,
+    dpi: int,
+    on_progress: Optional[ProgressHook] = None,
+) -> Path:
+    """img2pdf が使えない環境向け。
+
+    Pillow の ``save_all`` は渡したページを全部同時にメモリへ載せるため、
+    数百ページを一度に渡すとメモリ不足で失敗する。少しずつ追記していく。
+    """
+    total = len(images)
+    done = 0
+    for start in range(0, total, PILLOW_CHUNK_SIZE):
+        chunk = images[start : start + PILLOW_CHUNK_SIZE]
+        pages = [_load_page(path) for path in chunk]
+        try:
+            pages[0].save(
+                output,
+                "PDF",
+                resolution=float(dpi),
+                save_all=True,
+                append_images=pages[1:],
+                append=start > 0,
+            )
+        finally:
+            for page in pages:
+                page.close()
+        done += len(chunk)
+        if on_progress:
+            on_progress(done, total)
     return output
 
 
@@ -136,12 +199,15 @@ def build_pdf_from_directory(
     output: Path,
     dpi: int = 150,
     jpeg_quality: Optional[int] = None,
+    on_progress: Optional[ProgressHook] = None,
 ) -> tuple[Path, int]:
     """フォルダ内の連番画像から PDF を作る。(出力パス, ページ数) を返す。"""
     images = collect_images(directory)
     if not images:
         raise ValueError(f"{directory} に画像が見つかりません。")
-    build_pdf(images, output, dpi=dpi, jpeg_quality=jpeg_quality)
+    build_pdf(
+        images, output, dpi=dpi, jpeg_quality=jpeg_quality, on_progress=on_progress
+    )
     return output, len(images)
 
 

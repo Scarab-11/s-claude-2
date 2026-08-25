@@ -10,8 +10,10 @@ from PIL import Image
 
 tk = pytest.importorskip("tkinter")
 
+from pathlib import Path  # noqa: E402
+
 from s2pdf import engine  # noqa: E402
-from s2pdf.config import Region  # noqa: E402
+from s2pdf.config import Profile, Region  # noqa: E402
 
 
 @pytest.fixture
@@ -96,6 +98,39 @@ def test_gui_run_captures_and_builds_pdf(app, tmp_path, monkeypatch):
     assert pdf_path.read_bytes().startswith(b"%PDF")
     assert str(app.btn_start["state"]) == "normal"
     assert str(app.btn_stop["state"]) == "disabled"
+
+
+def test_pdf_failure_is_shown_and_images_are_kept(app, tmp_path, monkeypatch):
+    """PDF が作れなかったとき、黙って終わらずに理由を出す。"""
+    directory = _fill_capture_folder(tmp_path / "capture")
+    errors: list[tuple] = []
+    monkeypatch.setattr("tkinter.messagebox.showerror", lambda *a, **k: errors.append(a))
+
+    def broken(*_a, **_k):
+        raise MemoryError("メモリが足りません")
+
+    monkeypatch.setattr("s2pdf.pdfbuild.build_pdf_from_directory", broken)
+
+    result = app._make_pdf(directory, tmp_path / "book.pdf", Profile())
+
+    assert result is None
+    assert errors, "エラーが表示されていない"
+    assert "メモリが足りません" in errors[0][1]
+    assert str(directory) in errors[0][1]  # 画像の場所を伝える
+    assert len(list(directory.glob("*.png"))) == 3  # 画像は消さない
+
+
+def test_pdf_path_is_reported_as_absolute(app, tmp_path, monkeypatch):
+    directory = _fill_capture_folder(tmp_path / "capture")
+    monkeypatch.setattr("tkinter.messagebox.showinfo", lambda *a, **k: None)
+    monkeypatch.chdir(tmp_path)
+
+    path = app._make_pdf(directory, Path("relative.pdf"), Profile())
+
+    assert path is not None
+    assert path.is_absolute()
+    assert app._last_pdf == path
+    assert str(path) in app.log.get("1.0", "end")
 
 
 def test_gui_reports_missing_region(app, monkeypatch):
