@@ -27,7 +27,6 @@ class CaptureReport:
     """1 回の実行結果。"""
 
     saved: list[Path] = field(default_factory=list)
-    removed: list[Path] = field(default_factory=list)
     reason: str = ""
 
     @property
@@ -79,6 +78,7 @@ class Capturer:
         self._on_progress = on_progress or (lambda _done, _total: None)
         self._should_stop = should_stop or (lambda: False)
         self._hwnd: Optional[int] = None
+        self._page_turn_method = "input"  # "post" = 前面を奪わない送り方
 
     # ---- 部品 -------------------------------------------------------
 
@@ -108,9 +108,12 @@ class Capturer:
             return image
         return image.crop(region.crop_box(image.width, image.height))
 
-    def capture_page(self, index: int) -> Path:
-        """1 ページ分を撮って保存し、保存先を返す。"""
-        image = imaging.apply_options(self.grab(), self.profile.image_options())
+    def capture_image(self) -> Image.Image:
+        """撮って、設定どおりに加工した 1 枚。"""
+        return imaging.apply_options(self.grab(), self.profile.image_options())
+
+    def save_image(self, image: Image.Image, index: int) -> Path:
+        """加工済みの画像をページ番号のファイル名で保存する。"""
         path = self.profile.image_path(index)
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.suffix.lower() in (".jpg", ".jpeg"):
@@ -118,6 +121,10 @@ class Capturer:
         else:
             image.save(path)
         return path
+
+    def capture_page(self, index: int) -> Path:
+        """1 ページ分を撮って保存し、保存先を返す。"""
+        return self.save_image(self.capture_image(), index)
 
     def check_window_capture(self) -> None:
         """ウィンドウ直接キャプチャが効くアプリかどうかを、撮り始める前に確かめる。
@@ -156,13 +163,63 @@ class Capturer:
 
         ウィンドウ直接キャプチャのときは前面に出さずにメッセージで送るので、
         他のウィンドウで作業していても邪魔されない。
+        メッセージでは反応しないアプリのために、前面に出す方式へ切り替えられる。
         """
-        if self.profile.uses_window_capture and self._hwnd is not None:
+        if self._page_turn_method == "post" and self._hwnd is not None:
             winput.post_key(self._hwnd, self.profile.key)
             return
         if self._hwnd is not None and not winput.focus_window(self._hwnd):
             self.message("警告: 対象ウィンドウを前面にできませんでした。")
         winput.send_key(self.profile.key)
+
+    def _wait_for_change(self, previous_fp: bytes, timeout: float) -> bool:
+        """画面が変わるまで待つ。変わったら True、時間切れ・中止なら False。"""
+        deadline = time.monotonic() + max(0.0, timeout)
+        while True:
+            if self._should_stop() or winput.is_escape_pressed():
+                return False
+            # 保存するものと同じ加工を通してから比べる（切り抜きや縮小で見え方が変わるため）
+            current = imaging.fingerprint(self.capture_image())
+            if not imaging.looks_same(
+                previous_fp, current, self.profile.duplicate_threshold
+            ):
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.15)
+
+    def _retry_page_turn(self, previous_fp: bytes) -> bool:
+        """ページが変わらなかったときに、送り方を変えながらやり直す。"""
+        profile = self.profile
+        self.message("ページが変わりません。もう一度キーを送ります。")
+        self.turn_page()
+        if self._wait_for_change(previous_fp, profile.change_timeout):
+            return True
+
+        if self._page_turn_method == "post":
+            # メッセージを受け取らない作りのアプリ向けに、前面に出す方式へ切り替える
+            self.message(
+                "メッセージ送信では反応しないため、"
+                "対象ウィンドウを前面に出してキーを送る方式に切り替えます。"
+            )
+            self._page_turn_method = "input"
+            self.turn_page()
+            if self._wait_for_change(previous_fp, profile.change_timeout):
+                return True
+        return False
+
+    PAGE_NOT_CHANGING = (
+        "ページが変わらないので終了しました。\n"
+        "最後まで到達したのなら問題ありません。そうでない場合は次を確認してください:\n"
+        "・ページ送りのキーが合っているか（right / left / pagedown / space など）\n"
+        "・対象ウィンドウを指定しているか（未指定だと前面のウィンドウにキーが送られます）\n"
+        "・「ページ送り後の待ち」「変化を待つ最大」を長くする必要がないか"
+    )
+
+    NO_TARGET_WINDOW = (
+        "対象ウィンドウが未指定です。前面にあるウィンドウにキーを送ります。"
+        "開始までの待ち時間の間に、対象のアプリをクリックして前面にしてください。"
+    )
 
     # ---- 本体 -------------------------------------------------------
 
@@ -171,6 +228,8 @@ class Capturer:
         profile = self.profile
         report = CaptureReport()
         self._hwnd = self.resolve_window()
+        # ウィンドウ直接キャプチャなら、まずは前面を奪わない送り方から試す
+        self._page_turn_method = "post" if profile.uses_window_capture else "input"
         if profile.uses_window_capture:
             self.check_window_capture()
 
@@ -180,6 +239,9 @@ class Capturer:
                 index += 1
             if index != start_index:
                 self.message(f"{index - 1} ページ目まで既にあるので {index} ページ目から続けます。")
+
+        if self._hwnd is None:
+            self.message(self.NO_TARGET_WINDOW)
 
         total = profile.pages if profile.pages > 0 else 0
         if profile.start_delay > 0:
@@ -191,7 +253,6 @@ class Capturer:
                 return report
 
         previous_fp: Optional[bytes] = None
-        duplicate_streak = 0
         captured_this_run = 0
 
         while True:
@@ -202,28 +263,25 @@ class Capturer:
                 report.reason = "Esc キーで中止しました。"
                 break
 
-            path = self.capture_page(index)
+            image = self.capture_image()
+            current_fp = imaging.fingerprint(image)
+            unchanged = previous_fp is not None and imaging.looks_same(
+                previous_fp, current_fp, profile.duplicate_threshold
+            )
+            if unchanged:
+                # ページ送りを試したのに画面が変わっていない。
+                # 同じ絵を何十枚も残しても意味がないので、ここでは保存しない。
+                if profile.stop_on_duplicate:
+                    report.reason = self.PAGE_NOT_CHANGING
+                    break
+                self.message("警告: ページが変わっていませんが、設定により続けます。")
+
+            path = self.save_image(image, index)
             report.saved.append(path)
             captured_this_run += 1
+            previous_fp = current_fp
             self._on_progress(captured_this_run, total)
             self.message(f"{index} ページ目を保存: {path.name}")
-
-            if profile.stop_on_duplicate:
-                with Image.open(path) as img:
-                    current_fp = imaging.fingerprint(img)
-                if previous_fp is not None and imaging.looks_same(
-                    previous_fp, current_fp, profile.duplicate_threshold
-                ):
-                    duplicate_streak += 1
-                    if duplicate_streak >= profile.duplicate_limit:
-                        report.reason = (
-                            f"同じ画面が {profile.duplicate_limit} 回続いたので終端と判断しました。"
-                        )
-                        report.removed = self._drop_trailing(report, duplicate_streak)
-                        break
-                else:
-                    duplicate_streak = 0
-                previous_fp = current_fp
 
             # 最後の 1 枚を撮ったあとは、余計なページ送りをせずに終わる
             if profile.pages > 0 and captured_this_run >= profile.pages:
@@ -243,21 +301,19 @@ class Capturer:
                 report.reason = "中止しました。"
                 break
 
+            if profile.verify_page_turn and not self._wait_for_change(
+                current_fp, profile.change_timeout
+            ):
+                if self._should_stop() or winput.is_escape_pressed():
+                    report.reason = "中止しました。"
+                    break
+                if not self._retry_page_turn(current_fp) and profile.stop_on_duplicate:
+                    report.reason = self.PAGE_NOT_CHANGING
+                    break
+
         if not report.reason:
             report.reason = "終了しました。"
         return report
-
-    def _drop_trailing(self, report: CaptureReport, count: int) -> list[Path]:
-        """終端判定で余分に撮れた同一ページを消す。"""
-        removed: list[Path] = []
-        for path in report.saved[-count:]:
-            try:
-                path.unlink()
-                removed.append(path)
-            except OSError:
-                pass
-        del report.saved[-count:]
-        return removed
 
     def _sleep(self, seconds: float) -> bool:
         """細かく分けて待つ。中止要求があれば True を返す。"""

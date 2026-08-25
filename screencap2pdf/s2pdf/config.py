@@ -138,9 +138,10 @@ class Profile:
     output_dir: str = "capture"
     prefix: str = "page"
     image_format: str = "png"
-    stop_on_duplicate: bool = True
+    stop_on_duplicate: bool = True  # ページが変わらなくなったら終わりとみなす
     duplicate_threshold: float = 0.004
-    duplicate_limit: int = 3  # 同じ画面が何回続いたら終了とみなすか
+    verify_page_turn: bool = True  # キーを送ったあと、実際に変わったか確かめる
+    change_timeout: float = 5.0  # 変わるのを待つ最大秒数
     trim: bool = False
     trim_tolerance: int = 10
     trim_padding: int = 0
@@ -189,8 +190,8 @@ class Profile:
             raise ValueError("ページ数は 0 以上にしてください（0 = 自動判定）。")
         if self.image_format.lower() not in ("png", "jpg", "jpeg"):
             raise ValueError("画像形式は png か jpg にしてください。")
-        if self.duplicate_limit < 1:
-            raise ValueError("同一ページ判定の回数は 1 以上にしてください。")
+        if self.change_timeout < 0:
+            raise ValueError("変化を待つ秒数は 0 以上にしてください。")
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)

@@ -72,7 +72,20 @@ def _add_capture_args(parser: argparse.ArgumentParser) -> None:
         dest="stop_on_duplicate",
         action="store_false",
         default=None,
-        help="同じ画面が続いても止めない",
+        help="ページが変わらなくても止めずに撮り続ける",
+    )
+    parser.add_argument(
+        "--change-timeout",
+        type=float,
+        metavar="秒",
+        help="ページ送り後、画面が変わるのを待つ最大秒数（既定: 5）",
+    )
+    parser.add_argument(
+        "--no-verify",
+        dest="verify_page_turn",
+        action="store_false",
+        default=None,
+        help="ページが変わったかを確認せず、待ち時間だけで進める",
     )
 
 
@@ -171,6 +184,8 @@ def _apply_overrides(profile: Profile, args: argparse.Namespace) -> Profile:
         ("grayscale", "grayscale"),
         ("max_width", "max_width"),
         ("stop_on_duplicate", "stop_on_duplicate"),
+        ("verify_page_turn", "verify_page_turn"),
+        ("change_timeout", "change_timeout"),
     ):
         value = getattr(args, attr, None)
         if value is not None:
@@ -270,9 +285,8 @@ def cmd_run(args: argparse.Namespace, store: ProfileStore) -> int:
         _echo("中断しました。")
         return 130
 
-    _echo(f"{report.reason} 保存したページ数: {report.page_count}")
-    if report.removed:
-        _echo(f"終端の重複 {len(report.removed)} 枚を削除しました。")
+    _echo(f"{report.reason}")
+    _echo(f"保存したページ数: {report.page_count}")
 
     if args.pdf and report.page_count:
         output, count = pdfbuild.build_pdf_from_directory(

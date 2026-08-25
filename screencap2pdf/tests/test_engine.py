@@ -35,6 +35,7 @@ def profile(tmp_path):
         start_delay=0,
         settle_delay=0,
         after_shot_delay=0,
+        change_timeout=0,  # テストでは変化待ちで時間を使わない
     )
 
 
@@ -69,24 +70,59 @@ def test_stops_when_screen_stops_changing(profile, screen):
     pages = [make_page(10), make_page(90), make_page(170)] + [make_page(170)] * 10
     screen(pages)
     profile.pages = 0
-    profile.duplicate_limit = 3
 
     report = engine.Capturer(profile).run()
 
     assert report.page_count == 3
-    assert len(report.removed) == 3
-    assert "終端" in report.reason
-    assert not any(p.exists() for p in report.removed)
+    assert "ページが変わらない" in report.reason
+    # 同じ画面は 1 枚も保存しない
+    assert len(list(profile.output_path().glob("*.png"))) == 3
 
 
-def test_page_limit_wins_over_auto_stop(profile, screen):
-    screen([make_page(10)] * 10)
+def test_unchanged_pages_are_never_saved(profile, screen):
+    """ページ送りが効かないとき、同じ絵を何十枚も残さない。"""
+    screen([make_page(10)] * 50)
+    profile.pages = 50
+
+    report = engine.Capturer(profile).run()
+
+    assert report.page_count == 1
+    assert "ページが変わらない" in report.reason
+    assert len(list(profile.output_path().glob("*.png"))) == 1
+
+
+def test_page_turn_is_retried_before_giving_up(profile, screen):
+    """1 回目が効かなくても、もう一度送って続けられる。"""
+    fake = screen([make_page(10), make_page(10), make_page(90), make_page(170)])
+    profile.pages = 3
+
+    report = engine.Capturer(profile).run()
+
+    assert report.page_count == 3
+    assert len(fake.keys_sent) == 3  # 1 回分は再送のぶん
+
+
+def test_page_limit_stops_before_the_end(profile, screen):
+    screen([make_page(s) for s in (10, 90, 170, 250)])
     profile.pages = 2
 
     report = engine.Capturer(profile).run()
 
     assert report.page_count == 2
     assert "2 ページ" in report.reason
+
+
+def test_duplicates_are_kept_when_auto_stop_is_off(profile, screen):
+    """止めない設定を選んだ場合は、利用者の意思どおり撮り続ける。"""
+    messages = []
+    screen([make_page(10)] * 10)
+    profile.pages = 3
+    profile.stop_on_duplicate = False
+
+    report = engine.Capturer(profile, on_message=messages.append).run()
+
+    assert report.page_count == 3
+    assert any("変わっていません" in m for m in messages)
 
 
 def test_resume_skips_existing_images(profile, screen):
@@ -258,6 +294,39 @@ def test_window_capture_does_not_steal_focus(profile, window):
     assert fake.focused == []  # 前面に出さない
 
 
+def test_window_capture_falls_back_when_messages_are_ignored(
+    profile, window, monkeypatch
+):
+    """メッセージ送信を無視するアプリでは、前面に出す方式へ自動で切り替える。"""
+    fake = window([_window_page(s) for s in (20, 90, 160)])
+
+    def ignore_post(_hwnd, _name):
+        pass  # メッセージを受け取らないアプリ
+
+    def focus_and_advance(hwnd):
+        fake.focused.append(hwnd)
+        return True
+
+    def send_and_advance(_name, hold=0.02):
+        fake.index += 1
+
+    monkeypatch.setattr(engine.winput, "post_key", ignore_post)
+    monkeypatch.setattr(engine.winput, "focus_window", focus_and_advance)
+    monkeypatch.setattr(engine.winput, "send_key", send_and_advance)
+
+    messages: list[str] = []
+    profile.capture_mode = "window"
+    profile.window_title = "対象アプリ"
+    profile.region = None
+    profile.pages = 3
+
+    report = engine.Capturer(profile, on_message=messages.append).run()
+
+    assert report.page_count == 3
+    assert fake.focused, "前面に出す方式に切り替わっていない"
+    assert any("切り替えます" in m for m in messages)
+
+
 def test_window_capture_crops_to_relative_region(profile, window):
     window([_window_page(30)])
     profile.capture_mode = "window"
@@ -319,6 +388,34 @@ def test_window_mode_allows_capturing_the_whole_window(tmp_path):
     Profile(
         capture_mode="window", window_title="アプリ", region=None, output_dir=str(tmp_path)
     ).validate()
+
+
+def test_warns_when_no_target_window_is_set(profile, screen):
+    screen([make_page(s) for s in (10, 90)])
+    profile.pages = 1
+    profile.window_title = None
+    messages: list[str] = []
+
+    engine.Capturer(profile, on_message=messages.append).run()
+
+    assert any("対象ウィンドウが未指定" in m for m in messages)
+
+
+def test_no_warning_when_a_window_is_set(profile, screen, monkeypatch):
+    from s2pdf.winput import WindowInfo
+
+    screen([make_page(s) for s in (10, 90)])
+    monkeypatch.setattr(
+        engine.winput, "find_window", lambda _t: WindowInfo(1, "対象アプリ")
+    )
+    monkeypatch.setattr(engine.winput, "focus_window", lambda _h: True)
+    profile.pages = 1
+    profile.window_title = "対象アプリ"
+    messages: list[str] = []
+
+    engine.Capturer(profile, on_message=messages.append).run()
+
+    assert not any("未指定" in m for m in messages)
 
 
 def test_missing_mss_explains_how_to_install(profile, monkeypatch):

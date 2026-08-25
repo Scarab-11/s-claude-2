@@ -137,6 +137,7 @@ class App(tk.Tk):
         self.var_prefix = tk.StringVar(value="page")
         self.var_format = tk.StringVar(value="png")
         self.var_autostop = tk.BooleanVar(value=True)
+        self.var_change_timeout = tk.StringVar(value="5.0")
         self.var_trim = tk.BooleanVar(value=False)
         self.var_gray = tk.BooleanVar(value=False)
         self.var_maxwidth = tk.StringVar(value="")
@@ -198,8 +199,14 @@ class App(tk.Tk):
         ).grid(row=2, column=3, sticky="w", **PAD)
 
         ttk.Checkbutton(
-            box, text="同じ画面が続いたら終端とみなして自動で止める", variable=self.var_autostop
-        ).grid(row=3, column=0, columnspan=4, sticky="w", **PAD)
+            box,
+            text="ページが変わらなくなったら終了する",
+            variable=self.var_autostop,
+        ).grid(row=3, column=0, columnspan=2, sticky="w", **PAD)
+        ttk.Label(box, text="変化を待つ最大(秒)").grid(row=3, column=2, sticky="e", **PAD)
+        ttk.Spinbox(
+            box, from_=0, to=60, increment=0.5, textvariable=self.var_change_timeout, width=8
+        ).grid(row=3, column=3, sticky="w", **PAD)
 
         ttk.Checkbutton(
             box,
@@ -339,6 +346,7 @@ class App(tk.Tk):
         self.var_prefix.set(profile.prefix)
         self.var_format.set(profile.image_format)
         self.var_autostop.set(profile.stop_on_duplicate)
+        self.var_change_timeout.set(f"{profile.change_timeout:g}")
         self.var_trim.set(profile.trim)
         self.var_gray.set(profile.grayscale)
         self.var_maxwidth.set(str(profile.max_width) if profile.max_width else "")
@@ -360,6 +368,7 @@ class App(tk.Tk):
             pages = int(self.var_pages.get() or 0)
             start_delay = float(self.var_start_delay.get() or 0)
             settle_delay = float(self.var_settle_delay.get() or 0)
+            change_timeout = float(self.var_change_timeout.get() or 0)
             dpi = int(self.var_dpi.get() or 150)
         except ValueError:
             raise ValueError("ページ数・待ち時間・解像度は数値で入力してください。") from None
@@ -377,6 +386,7 @@ class App(tk.Tk):
             prefix=self.var_prefix.get().strip() or "page",
             image_format=self.var_format.get(),
             stop_on_duplicate=self.var_autostop.get(),
+            change_timeout=change_timeout,
             trim=self.var_trim.get(),
             grayscale=self.var_gray.get(),
             max_width=self._int_or_none(self.var_maxwidth.get(), "横幅"),
@@ -724,9 +734,8 @@ class App(tk.Tk):
     def _on_worker_done(self, payload) -> None:
         profile, report = payload
         self._cleanup_after_run()
-        self.write_log(f"{report.reason} 保存したページ数: {report.page_count}")
-        if report.removed:
-            self.write_log(f"終端の重複 {len(report.removed)} 枚を削除しました。")
+        self.write_log(report.reason)
+        self.write_log(f"保存したページ数: {report.page_count}")
 
         if self.var_autopdf.get() and report.page_count:
             try:
