@@ -1,0 +1,22 @@
+# 外部変形の実行時に作られる一時ファイル
+jwc_temp.txt
+jww_text_align.ini
+
+# Python の一時ファイル
+__pycache__/
+*.pyc
+
+# 言語データ。同梱するのは pdf_ocr/src/tessdata/jpn.traineddata（精度重視版）
+# と pdf_ocr/src/tessdata_fast/jpn.traineddata（速度重視版）だけ。実行すると、
+# tesseract 本体の置き場から eng/jpn_vert/osd/configs が同じフォルダへ複製
+# される（fill_tessdata / ensure_fast_tessdata の仕様）。これは利用者の
+# 機械では欲しい動きだが、この作業フォルダでは追跡したくない。
+tessdata/
+!pdf_ocr/src/tessdata/
+pdf_ocr/src/tessdata/*
+!pdf_ocr/src/tessdata/jpn.traineddata
+
+tessdata_fast/
+!pdf_ocr/src/tessdata_fast/
+pdf_ocr/src/tessdata_fast/*
+!pdf_ocr/src/tessdata_fast/jpn.traineddata
