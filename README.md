@@ -17,4 +17,4 @@ JWW・Comfyui・PDF変換etc
 | `claude/pdf-data-loading-plhsyf` | PDFデータ読み込み |
 | `claude/comfyui-image-workflow-2tuhmd` | ComfyUI 画像ワークフロー |
 | `claude/pdf-text-to-speech-app-kpvwy6` | PDF読み上げアプリ |
-| `claude/kindle-screenshot-pdf-app-c5nxty` | Kindleスクリーンショット→PDF化アプリ |
+| `claude/kindle-screenshot-pdf-app-c5nxty` | スクリーンショット→PDF化アプリ |
